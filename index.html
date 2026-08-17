@@ -1,0 +1,461 @@
+import pygame
+import math
+import random
+import sys
+
+pygame.init()
+pygame.font.init()
+
+# Configurações de Tela
+WIDTH, HEIGHT = 1000, 600
+screen = pygame.display.set_mode((WIDTH, HEIGHT))
+pygame.display.set_caption("Jogo de Aventura - Estilo Terraria")
+clock = pygame.time.Clock()
+
+# Fontes
+FONT = pygame.font.SysFont("Arial", 16, bold=True)
+BIG_FONT = pygame.font.SysFont("Arial", 32, bold=True)
+
+# Cores
+GREEN = (34, 139, 34)
+DARK_GREEN = (20, 90, 20)
+BROWN = (101, 67, 33)
+DARK_BROWN = (60, 40, 20)
+GRAY = (128, 128, 128)
+DARK_GRAY = (80, 80, 80)
+LIGHT_GRAY = (200, 200, 200)
+RED = (200, 40, 40)
+YELLOW = (255, 223, 0)
+WHITE = (255, 255, 255)
+BLACK = (0, 0, 0)
+ROTTEN_COLOR = (85, 107, 47)
+SKIN_COLOR = (240, 190, 150)
+BLUE = (50, 100, 200)
+
+# Estados do Jogo
+STATE_MENU = "MENU"
+STATE_GAME = "GAME"
+current_state = STATE_MENU
+
+# --- ESTRUTURA DE CLASSES ---
+
+class Projectile:
+    def __init__(self, x, y, target_x, target_y):
+        self.x = x
+        self.y = y
+        self.speed = 12
+        self.damage = 13
+        angle = math.atan2(target_y - y, target_x - x)
+        self.vx = math.cos(angle) * self.speed
+        self.vy = math.sin(angle) * self.speed
+        self.rect = pygame.Rect(x - 3, y - 3, 6, 6)
+        self.active = True
+
+    def update(self):
+        self.x += self.vx
+        self.y += self.vy
+        self.rect.x = int(self.x)
+        self.rect.y = int(self.y)
+        if self.x < 0 or self.x > WIDTH or self.y < 0 or self.y > HEIGHT:
+            self.active = False
+
+    def draw(self, surface):
+        pygame.draw.circle(surface, YELLOW, (int(self.x), int(self.y)), 4)
+
+
+class DropItem:
+    def __init__(self, x, y, count):
+        self.rect = pygame.Rect(x, y, 16, 16)
+        self.count = count
+        self.name = "Carne Podre"
+
+    def draw(self, surface):
+        pygame.draw.rect(surface, ROTTEN_COLOR, self.rect)
+        pygame.draw.rect(surface, BLACK, self.rect, 1)
+
+
+class Zombie:
+    def __init__(self, x, y):
+        self.rect = pygame.Rect(x, y, 32, 58)
+        self.hp = 30
+        self.max_hp = 30
+        self.speed = 1.5
+        self.damage = 8
+        self.attack_cooldown = 0
+
+    def update(self, player_rect):
+        if self.attack_cooldown > 0:
+            self.attack_cooldown -= 1
+        
+        # Persegue o jogador
+        if self.rect.x < player_rect.x:
+            self.rect.x += self.speed
+        elif self.rect.x > player_rect.x:
+            self.rect.x -= self.speed
+
+    def draw(self, surface):
+        # Corpo do zumbi
+        pygame.draw.rect(surface, ROTTEN_COLOR, self.rect)
+        # Olhos vermelhos
+        pygame.draw.rect(surface, RED, (self.rect.x + 6, self.rect.y + 8, 4, 4))
+        pygame.draw.rect(surface, RED, (self.rect.x + 20, self.rect.y + 8, 4, 4))
+        # Barra de Vida
+        pygame.draw.rect(surface, RED, (self.rect.x, self.rect.y - 10, 32, 4))
+        pygame.draw.rect(surface, GREEN, (self.rect.x, self.rect.y - 10, int(32 * (self.hp / self.max_hp)), 4))
+
+
+class Player:
+    def __init__(self, x, y):
+        self.normal_height = 58
+        self.crouch_height = 36
+        self.rect = pygame.Rect(x, y, 32, self.normal_height)
+        self.vx = 0
+        self.vy = 0
+        self.is_grounded = False
+        self.hp = 100
+        self.max_hp = 100
+        
+        # Inventário e Equipamento (1: Espada, 2: Escudo, 3: Arco, 4: Carne Podre)
+        self.selected_slot = 1
+        self.inventory = {1: "Espada", 2: "Escudo", 3: "Arco", 4: None}
+        self.rotten_meat_count = 0
+
+        # Cooldowns (em milissegundos)
+        self.last_sword_time = 0
+        self.last_bow_time = 0
+        self.sword_cooldown = 4000
+        self.bow_cooldown = 4000
+
+        # Mecânica do Escudo
+        self.shield_charges = 4
+        self.shield_regen_timer = 0
+        self.is_blocking = False
+
+        # Animação Arco
+        self.bow_pulling = False
+        self.bow_pull_timer = 0
+
+    def handle_input(self, keys):
+        speed = 5 if keys[pygame.K_LSHIFT] or keys[pygame.K_RSHIFT] else 3
+        self.vx = 0
+
+        if keys[pygame.K_a] or keys[pygame.K_LEFT]:
+            self.vx = -speed
+        if keys[pygame.K_d] or keys[pygame.K_RIGHT]:
+            self.vx = speed
+
+        # Agachar
+        if keys[pygame.K_c]:
+            if self.rect.height != self.crouch_height:
+                self.rect.height = self.crouch_height
+                self.rect.y += (self.normal_height - self.crouch_height)
+        else:
+            if self.rect.height != self.normal_height:
+                self.rect.y -= (self.normal_height - self.crouch_height)
+                self.rect.height = self.normal_height
+
+        # Pular
+        if keys[pygame.K_SPACE] and self.is_grounded:
+            self.vy = -11
+            self.is_grounded = False
+
+        # Seleção de Atalhos
+        if keys[pygame.K_1]: self.selected_slot = 1
+        if keys[pygame.K_2]: self.selected_slot = 2
+        if keys[pygame.K_3]: self.selected_slot = 3
+        if keys[pygame.K_4]: self.selected_slot = 4
+
+    def update(self, ground_y):
+        # Gravidade
+        self.vy += 0.5
+        self.rect.x += self.vx
+        self.rect.y += self.vy
+
+        # Colisão com Chão
+        if self.rect.bottom >= ground_y:
+            self.rect.bottom = ground_y
+            self.vy = 0
+            self.is_grounded = True
+
+        # Regeneração do Escudo (30 segundos = 30000ms)
+        now = pygame.time.get_ticks()
+        if self.shield_charges < 4:
+            if now - self.shield_regen_timer >= 30000:
+                self.shield_charges = 4
+                self.shield_regen_timer = now
+
+    def draw(self, surface, mouse_pos):
+        # Corpo do Jogador
+        pygame.draw.rect(surface, BLUE, self.rect)
+        # Cabeça
+        pygame.draw.rect(surface, SKIN_COLOR, (self.rect.x + 4, self.rect.y + 4, 24, 20))
+
+        # Posição do Braço Direito estendido em direção ao cursor
+        arm_start_x = self.rect.x + 24
+        arm_start_y = self.rect.y + 24
+        angle = math.atan2(mouse_pos[1] - arm_start_y, mouse_pos[0] - arm_start_x)
+        arm_length = 18
+        arm_end_x = arm_start_x + math.cos(angle) * arm_length
+        arm_end_y = arm_start_y + math.sin(angle) * arm_length
+
+        # Desenhar Braço Direito
+        pygame.draw.line(surface, SKIN_COLOR, (arm_start_x, arm_start_y), (arm_end_x, arm_end_y), 6)
+
+        # Desenhar Equipamento Selecionado no Braço
+        item = self.inventory.get(self.selected_slot)
+        if item == "Espada":
+            sword_len = 30
+            tip_x = arm_end_x + math.cos(angle) * sword_len
+            tip_y = arm_end_y + math.sin(angle) * sword_len
+            pygame.draw.line(surface, GRAY, (arm_end_x, arm_end_y), (tip_x, tip_y), 5)
+            pygame.draw.circle(surface, DARK_GRAY, (int(arm_end_x), int(arm_end_y)), 4)
+        
+        elif item == "Escudo":
+            # Escudo Gladiador Triangular de Ferro
+            p1 = (arm_end_x + math.cos(angle) * 12, arm_end_y + math.sin(angle) * 12)
+            p2 = (arm_end_x + math.cos(angle + 1.2) * 16, arm_end_y + math.sin(angle + 1.2) * 16)
+            p3 = (arm_end_x + math.cos(angle - 1.2) * 16, arm_end_y + math.sin(angle - 1.2) * 16)
+            pygame.draw.polygon(surface, LIGHT_GRAY, [p1, p2, p3])
+            pygame.draw.polygon(surface, DARK_GRAY, [p1, p2, p3], 2)
+
+        elif item == "Arco":
+            # Arco com Animação de Puxada
+            pull = 6 if self.bow_pulling else 0
+            bow_r = 16
+            perp_angle = angle + math.pi / 2
+            top = (arm_end_x + math.cos(perp_angle) * bow_r, arm_end_y + math.sin(perp_angle) * bow_r)
+            bot = (arm_end_x - math.cos(perp_angle) * bow_r, arm_end_y - math.sin(perp_angle) * bow_r)
+            mid_string = (arm_end_x - math.cos(angle) * pull, arm_end_y - math.sin(angle) * pull)
+            
+            pygame.draw.line(surface, BROWN, top, bot, 3)
+            pygame.draw.line(surface, WHITE, top, mid_string, 1)
+            pygame.draw.line(surface, WHITE, bot, mid_string, 1)
+
+
+# --- SISTEMA DO JOGO ---
+
+player = Player(180, 420)
+zombies = [Zombie(700, 420), Zombie(850, 420)]
+projectiles = []
+drops = []
+ground_level = 480
+
+# Botões do Menu
+btn_start = pygame.Rect(WIDTH // 2 - 100, 320, 200, 45)
+btn_exit = pygame.Rect(WIDTH // 2 - 100, 380, 200, 45)
+
+def reset_game():
+    global player, zombies, projectiles, drops
+    player = Player(180, 420)
+    zombies = [Zombie(700, 420), Zombie(850, 420)]
+    projectiles = []
+    drops = []
+
+running = True
+while running:
+    clock.tick(60)
+    mouse_pos = pygame.mouse.get_pos()
+    now = pygame.time.get_ticks()
+
+    # --- PROCESSAMENTO DE EVENTOS ---
+    for event in pygame.event.type:
+        if event.type == pygame.QUIT:
+            running = False
+
+        if current_state == STATE_MENU:
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                if btn_start.collidepoint(mouse_pos):
+                    reset_game()
+                    current_state = STATE_GAME
+                elif btn_exit.collidepoint(mouse_pos):
+                    running = False
+
+        elif current_state == STATE_GAME:
+            if event.type == pygame.KEYDOWN:
+                # [F] Pegar Itens Dropados Proximos
+                if event.key == pygame.K_f:
+                    for drop in drops[:]:
+                        if player.rect.colliderect(drop.rect.inflate(40, 40)):
+                            player.rotten_meat_count += drop.count
+                            player.inventory[4] = f"Carne Podre ({player.rotten_meat_count})"
+                            drops.remove(drop)
+
+                # [G] Dropar Item da Mão
+                if event.key == pygame.K_g:
+                    if player.selected_slot == 4 and player.rotten_meat_count > 0:
+                        drops.append(DropItem(player.rect.x, player.rect.y, player.rotten_meat_count))
+                        player.rotten_meat_count = 0
+                        player.inventory[4] = None
+
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                # Clique Esquerdo: Bater / Atacar
+                if event.button == 1:
+                    item = player.inventory.get(player.selected_slot)
+                    if item == "Espada" and (now - player.last_sword_time >= player.sword_cooldown):
+                        player.last_sword_time = now
+                        attack_box = player.rect.inflate(50, 20)
+                        for z in zombies:
+                            if attack_box.colliderect(z.rect):
+                                z.hp -= 10
+
+                # Clique Direito: Atirar com Arco / Consumir Item
+                elif event.button == 3:
+                    item = player.inventory.get(player.selected_slot)
+                    if item == "Arco" and (now - player.last_bow_time >= player.bow_cooldown):
+                        player.last_bow_time = now
+                        player.bow_pulling = True
+                        player.bow_pull_timer = now
+                        projectiles.append(Projectile(player.rect.centerx, player.rect.centery, mouse_pos[0], mouse_pos[1]))
+                    
+                    elif player.selected_slot == 4 and player.rotten_meat_count > 0:
+                        player.rotten_meat_count -= 1
+                        player.hp = min(player.max_hp, player.hp + 15)
+                        if player.rotten_meat_count <= 0:
+                            player.inventory[4] = None
+                        else:
+                            player.inventory[4] = f"Carne Podre ({player.rotten_meat_count})"
+
+    # --- ATUALIZAÇÕES ---
+    if current_state == STATE_GAME:
+        keys = pygame.key.get_pressed()
+        player.handle_input(keys)
+        player.update(ground_level)
+
+        # Atualização do Arco Animação
+        if player.bow_pulling and (now - player.bow_pull_timer > 300):
+            player.bow_pulling = False
+
+        # Coleta Automática de Drops por Aproximação
+        for drop in drops[:]:
+            if player.rect.colliderect(drop.rect):
+                player.rotten_meat_count += drop.count
+                player.inventory[4] = f"Carne Podre ({player.rotten_meat_count})"
+                drops.remove(drop)
+
+        # Atualizar Projéteis
+        for p in projectiles[:]:
+            p.update()
+            if not p.active:
+                projectiles.remove(p)
+                continue
+            for z in zombies:
+                if p.rect.colliderect(z.rect):
+                    z.hp -= p.damage
+                    p.active = False
+                    if p in projectiles:
+                        projectiles.remove(p)
+                    break
+
+        # Atualizar Zumbis
+        for z in zombies[:]:
+            z.update(player.rect)
+            # Colisão Zumbi -> Jogador
+            if z.rect.colliderect(player.rect) and z.attack_cooldown == 0:
+                z.attack_cooldown = 60
+                # Bloqueio com Escudo
+                if player.inventory.get(player.selected_slot) == "Escudo" and player.shield_charges > 0:
+                    player.shield_charges -= 1
+                    if player.shield_charges == 3:
+                        player.shield_regen_timer = now
+                else:
+                    player.hp -= z.damage
+
+            # Morte do Zumbi e Drop de Carne Podre (1 a 3)
+            if z.hp <= 0:
+                meat_dropped = random.randint(1, 3)
+                drops.append(DropItem(z.rect.x, z.rect.bottom - 16, meat_dropped))
+                zombies.remove(z)
+
+        # Respawn contínuo de Zumbis para manter o desafio
+        if len(zombies) < 2 and random.randint(1, 120) == 1:
+            zombies.append(Zombie(WIDTH + 30, ground_level - 58))
+
+    # --- RENDERIZAÇÃO ---
+    screen.fill(BLACK)
+
+    if current_state == STATE_MENU:
+        # Sala de introdução
+        pygame.draw.rect(surface=screen, color=DARK_BROWN, rect=(100, 50, 800, 450))
+        
+        # Porta no meio com luz brilhante ao fundo
+        door_rect = pygame.Rect(WIDTH // 2 - 40, 200, 80, 200)
+        pygame.draw.rect(screen, YELLOW, door_rect)
+        pygame.draw.rect(screen, WHITE, door_rect.inflate(-10, -10))
+
+        # Armas penduradas na parede
+        pygame.draw.line(screen, GRAY, (200, 150), (260, 150), 6) # Espada na parede
+        pygame.draw.arc(screen, BROWN, (730, 130, 30, 60), -1.5, 1.5, 4) # Arco na parede
+
+        # Título do jogo
+        title_txt = BIG_FONT.render("FLORESTA SOMBRIA", True, WHITE)
+        screen.blit(title_txt, (WIDTH // 2 - title_txt.get_width() // 2, 80))
+
+        # Botão Iniciar
+        pygame.draw.rect(screen, GREEN, btn_start, border_radius=8)
+        txt_start = FONT.render("Iniciar", True, WHITE)
+        screen.blit(txt_start, (btn_start.centerx - txt_start.get_width() // 2, btn_start.centery - 10))
+
+        # Botão Sair
+        pygame.draw.rect(screen, RED, btn_exit, border_radius=8)
+        txt_exit = FONT.render("Sair", True, WHITE)
+        screen.blit(txt_exit, (btn_exit.centerx - txt_exit.get_width() // 2, btn_exit.centery - 10))
+
+    elif current_state == STATE_GAME:
+        # Fundo: Floresta Gigantesca
+        screen.fill((135, 206, 235)) # Céu
+        for i in range(0, WIDTH, 120):
+            # Arvores ao fundo
+            pygame.draw.rect(screen, BROWN, (i + 40, ground_level - 120, 25, 120))
+            pygame.draw.circle(screen, DARK_GREEN, (i + 52, ground_level - 140), 45)
+
+        # Casa e Cama Inicial
+        pygame.draw.rect(screen, DARK_BROWN, (50, ground_level - 120, 180, 120)) # Casa
+        pygame.draw.rect(screen, RED, (70, ground_level - 25, 50, 25)) # Cama
+        pygame.draw.rect(screen, WHITE, (70, ground_level - 25, 15, 25)) # Travesseiro
+
+        # Chão
+        pygame.draw.rect(screen, GREEN, (0, ground_level, WIDTH, HEIGHT - ground_level))
+
+        # Desenhar Entidades
+        for drop in drops: drop.draw(screen)
+        for proj in projectiles: proj.draw(screen)
+        for z in zombies: z.draw(screen)
+        player.draw(screen, mouse_pos)
+
+        # --- HUD / INVENTÁRIO INFERIOR ---
+        bar_w = 320
+        bar_x = (WIDTH - bar_w) // 2
+        bar_y = HEIGHT - 65
+        pygame.draw.rect(screen, DARK_GRAY, (bar_x - 10, bar_y - 10, bar_w + 20, 60), border_radius=5)
+
+        for slot in range(1, 5):
+            slot_x = bar_x + (slot - 1) * 80
+            slot_rect = pygame.Rect(slot_x, bar_y, 70, 40)
+            
+            # Destaque do Slot Selecionado
+            border_color = YELLOW if player.selected_slot == slot else WHITE
+            pygame.draw.rect(screen, GRAY, slot_rect)
+            pygame.draw.rect(screen, border_color, slot_rect, 2)
+
+            # Texto do Slot
+            label = f"{slot}: " + (player.inventory[slot] if player.inventory[slot] else "Vazio")
+            txt = FONT.render(label, True, WHITE)
+            screen.blit(txt, (slot_x + 4, slot_y + 12))
+
+        # HUD de Status (Vida, Cooldowns e Escudo)
+        hp_txt = FONT.render(f"Vida: {player.hp}/{player.max_hp}", True, RED)
+        screen.blit(hp_txt, (20, 20))
+
+        shield_txt = FONT.render(f"Cargas do Escudo: {player.shield_charges}/4", True, WHITE)
+        screen.blit(shield_txt, (20, 40))
+
+        # Cooldown indicators
+        sw_cd = max(0, int((player.sword_cooldown - (now - player.last_sword_time)) / 1000))
+        bow_cd = max(0, int((player.bow_cooldown - (now - player.last_bow_time)) / 1000))
+        cd_txt = FONT.render(f"CD Espada: {sw_cd}s | CD Arco: {bow_cd}s", True, YELLOW)
+        screen.blit(cd_txt, (20, 60))
+
+    pygame.display.flip()
+
+pygame.quit()
+sys.exit()
