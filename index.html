@@ -1,461 +1,1108 @@
-import pygame
-import math
-import random
-import sys
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Floresta Sombria - Jogo de Aventura estilo Terraria</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+        }
 
-pygame.init()
-pygame.font.init()
+        body, html {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #0d0e15;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: #ffffff;
+        }
 
-# Configurações de Tela
-WIDTH, HEIGHT = 1000, 600
-screen = pygame.display.set_mode((WIDTH, HEIGHT))
-pygame.display.set_caption("Jogo de Aventura - Estilo Terraria")
-clock = pygame.time.Clock()
+        #game-container {
+            position: relative;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+            border-radius: 8px;
+            overflow: hidden;
+            border: 2px solid #2a2d3d;
+        }
 
-# Fontes
-FONT = pygame.font.SysFont("Arial", 16, bold=True)
-BIG_FONT = pygame.font.SysFont("Arial", 32, bold=True)
+        canvas {
+            display: block;
+            background-color: #000;
+        }
 
-# Cores
-GREEN = (34, 139, 34)
-DARK_GREEN = (20, 90, 20)
-BROWN = (101, 67, 33)
-DARK_BROWN = (60, 40, 20)
-GRAY = (128, 128, 128)
-DARK_GRAY = (80, 80, 80)
-LIGHT_GRAY = (200, 200, 200)
-RED = (200, 40, 40)
-YELLOW = (255, 223, 0)
-WHITE = (255, 255, 255)
-BLACK = (0, 0, 0)
-ROTTEN_COLOR = (85, 107, 47)
-SKIN_COLOR = (240, 190, 150)
-BLUE = (50, 100, 200)
+        #controls-hint {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            background: rgba(15, 18, 28, 0.85);
+            padding: 10px 14px;
+            border-radius: 6px;
+            font-size: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            pointer-events: none;
+            line-height: 1.5;
+            text-align: right;
+            backdrop-filter: blur(4px);
+        }
 
-# Estados do Jogo
-STATE_MENU = "MENU"
-STATE_GAME = "GAME"
-current_state = STATE_MENU
+        #controls-hint span {
+            color: #ffd700;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
 
-# --- ESTRUTURA DE CLASSES ---
+<div id="game-container">
+    <canvas id="gameCanvas" width="1000" height="600"></canvas>
+    
+    <div id="controls-hint">
+        <b>Controles do Jogo:</b><br>
+        <span>1, 2, 3, 4</span> : Equipar Itens<br>
+        <span>A / D</span> : Mover | <span>Espaço</span> : Pular<br>
+        <span>Shift</span> : Correr | <span>C</span> : Agachar<br>
+        <span>Botão Esquerdo Mouse</span> : Atacar com Espada / Arco<br>
+        <span>Botão Direito Mouse</span> : Atirar Arco / Consumir Item<br>
+        <span>F</span> : Pegar Item | <span>G</span> : Dropar Item
+    </div>
+</div>
 
-class Projectile:
-    def __init__(self, x, y, target_x, target_y):
-        self.x = x
-        self.y = y
-        self.speed = 12
-        self.damage = 13
-        angle = math.atan2(target_y - y, target_x - x)
-        self.vx = math.cos(angle) * self.speed
-        self.vy = math.sin(angle) * self.speed
-        self.rect = pygame.Rect(x - 3, y - 3, 6, 6)
-        self.active = True
+<script>
+// --- CONFIGURAÇÃO INICIAL E CANVAS ---
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
 
-    def update(self):
-        self.x += self.vx
-        self.y += self.vy
-        self.rect.x = int(self.x)
-        self.rect.y = int(self.y)
-        if self.x < 0 or self.x > WIDTH or self.y < 0 or self.y > HEIGHT:
-            self.active = False
+const WIDTH = canvas.width;
+const HEIGHT = canvas.height;
+const WORLD_WIDTH = 2800;
+const GROUND_Y = 480;
 
-    def draw(self, surface):
-        pygame.draw.circle(surface, YELLOW, (int(self.x), int(self.y)), 4)
+// --- ESTADOS DO JOGO ---
+const STATE_MENU = "MENU";
+const STATE_GAME = "GAME";
+let currentState = STATE_MENU;
 
+// --- ENTRADAS DE TECLADO E MOUSE ---
+const keys = {};
+let mousePos = { x: 0, y: 0 };
+let mouseWorldPos = { x: 0, y: 0 };
 
-class DropItem:
-    def __init__(self, x, y, count):
-        self.rect = pygame.Rect(x, y, 16, 16)
-        self.count = count
-        self.name = "Carne Podre"
+window.addEventListener("keydown", (e) => {
+    keys[e.key.toLowerCase()] = true;
+    keys[e.code] = true;
+    
+    if (currentState === STATE_GAME) {
+        if (e.key === "1") player.selectedSlot = 1;
+        if (e.key === "2") player.selectedSlot = 2;
+        if (e.key === "3") player.selectedSlot = 3;
+        if (e.key === "4") player.selectedSlot = 4;
 
-    def draw(self, surface):
-        pygame.draw.rect(surface, ROTTEN_COLOR, self.rect)
-        pygame.draw.rect(surface, BLACK, self.rect, 1)
+        // Pegar item com F
+        if (e.key.toLowerCase() === "f") {
+            pickupNearbyItems();
+        }
 
+        // Dropar item com G
+        if (e.key.toLowerCase() === "g") {
+            dropCurrentItem();
+        }
+    }
+});
 
-class Zombie:
-    def __init__(self, x, y):
-        self.rect = pygame.Rect(x, y, 32, 58)
-        self.hp = 30
-        self.max_hp = 30
-        self.speed = 1.5
-        self.damage = 8
-        self.attack_cooldown = 0
+window.addEventListener("keyup", (e) => {
+    keys[e.key.toLowerCase()] = false;
+    keys[e.code] = false;
+});
 
-    def update(self, player_rect):
-        if self.attack_cooldown > 0:
-            self.attack_cooldown -= 1
+canvas.addEventListener("mousemove", (e) => {
+    const rect = canvas.getBoundingClientRect();
+    mousePos.x = e.clientX - rect.left;
+    mousePos.y = e.clientY - rect.top;
+});
+
+canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+
+canvas.addEventListener("mousedown", (e) => {
+    if (currentState === STATE_MENU) {
+        handleMenuClick(e);
+        return;
+    }
+
+    if (currentState === STATE_GAME) {
+        const now = performance.now();
         
-        # Persegue o jogador
-        if self.rect.x < player_rect.x:
-            self.rect.x += self.speed
-        elif self.rect.x > player_rect.x:
-            self.rect.x -= self.speed
+        // Botão Esquerdo (Ataque Principal)
+        if (e.button === 0) {
+            if (player.selectedSlot === 1) {
+                // Espada
+                if (now - player.lastSwordTime >= player.swordCooldown) {
+                    player.lastSwordTime = now;
+                    player.swingAnim = 1.0; // Inicia animação do balanço
+                    performSwordAttack();
+                }
+            } else if (player.selectedSlot === 3) {
+                // Arco com clique esquerdo também dispara
+                triggerBowShoot(now);
+            }
+        }
 
-    def draw(self, surface):
-        # Corpo do zumbi
-        pygame.draw.rect(surface, ROTTEN_COLOR, self.rect)
-        # Olhos vermelhos
-        pygame.draw.rect(surface, RED, (self.rect.x + 6, self.rect.y + 8, 4, 4))
-        pygame.draw.rect(surface, RED, (self.rect.x + 20, self.rect.y + 8, 4, 4))
-        # Barra de Vida
-        pygame.draw.rect(surface, RED, (self.rect.x, self.rect.y - 10, 32, 4))
-        pygame.draw.rect(surface, GREEN, (self.rect.x, self.rect.y - 10, int(32 * (self.hp / self.max_hp)), 4))
+        // Botão Direito (Ação Secundária: Atirar Arco ou Consumir Item)
+        if (e.button === 2) {
+            if (player.selectedSlot === 3) {
+                triggerBowShoot(now);
+            } else if (player.selectedSlot === 4 && player.rottenMeatCount > 0) {
+                // Consumir Carne Podre
+                player.rottenMeatCount--;
+                player.hp = Math.min(player.maxHp, player.hp + 20);
+                createFloatingText(player.x + player.width/2, player.y - 10, "+20 HP", "#2ecc71");
+                if (player.rottenMeatCount <= 0) {
+                    player.inventory[4] = null;
+                } else {
+                    player.inventory[4] = `Carne Podre (${player.rottenMeatCount})`;
+                }
+            }
+        }
+    }
+});
 
+// --- SISTEMA DE CAMERA ---
+let cameraX = 0;
 
-class Player:
-    def __init__(self, x, y):
-        self.normal_height = 58
-        self.crouch_height = 36
-        self.rect = pygame.Rect(x, y, 32, self.normal_height)
-        self.vx = 0
-        self.vy = 0
-        self.is_grounded = False
-        self.hp = 100
-        self.max_hp = 100
+function updateCamera() {
+    cameraX = player.x + player.width / 2 - WIDTH / 2;
+    if (cameraX < 0) cameraX = 0;
+    if (cameraX > WORLD_WIDTH - WIDTH) cameraX = WORLD_WIDTH - WIDTH;
+    
+    mouseWorldPos.x = mousePos.x + cameraX;
+    mouseWorldPos.y = mousePos.y;
+}
+
+// --- TEXTO FLUTUANTE DE DANO / CURA ---
+let floatingTexts = [];
+function createFloatingText(x, y, text, color = "#ffffff") {
+    floatingTexts.push({ x, y, text, color, alpha: 1.0, vy: -1.5 });
+}
+
+function updateFloatingTexts() {
+    for (let i = floatingTexts.length - 1; i >= 0; i--) {
+        let ft = floatingTexts[i];
+        ft.y += ft.vy;
+        ft.alpha -= 0.02;
+        if (ft.alpha <= 0) {
+            floatingTexts.splice(i, 1);
+        }
+    }
+}
+
+function drawFloatingTexts() {
+    ctx.save();
+    ctx.font = "bold 14px Arial";
+    floatingTexts.forEach(ft => {
+        ctx.globalAlpha = Math.max(0, ft.alpha);
+        ctx.fillStyle = ft.color;
+        ctx.fillText(ft.text, ft.x - cameraX, ft.y);
+    });
+    ctx.restore();
+}
+
+// --- CLASSES E ENTIDADES ---
+
+// PLAYER (JOGADOR)
+const player = {
+    x: 140,
+    y: GROUND_Y - 58,
+    width: 32,
+    normalHeight: 58,
+    crouchHeight: 36,
+    height: 58,
+    vx: 0,
+    vy: 0,
+    isGrounded: false,
+    hp: 100,
+    maxHp: 100,
+    
+    selectedSlot: 1,
+    inventory: {
+        1: "Espada Pesada",
+        2: "Escudo Gladiador",
+        3: "Arco de Caça",
+        4: null
+    },
+    rottenMeatCount: 0,
+
+    // Cooldowns em ms
+    lastSwordTime: 0,
+    swordCooldown: 4000,
+    
+    lastBowTime: 0,
+    bowCooldown: 4000,
+    
+    // Escudo
+    shieldCharges: 4,
+    shieldMaxCharges: 4,
+    shieldRegenTimer: 0,
+    shieldRegenDuration: 30000, // 30 segundos
+    isRegeneratingShield: false,
+
+    // Animações
+    bowPulling: false,
+    bowPullProgress: 0,
+    swingAnim: 0,
+
+    reset() {
+        this.x = 140;
+        this.y = GROUND_Y - 58;
+        this.height = this.normalHeight;
+        this.vx = 0;
+        this.vy = 0;
+        this.hp = 100;
+        this.selectedSlot = 1;
+        this.rottenMeatCount = 0;
+        this.inventory[4] = null;
+        this.shieldCharges = 4;
+        this.isRegeneratingShield = false;
+        this.lastSwordTime = -4000;
+        this.lastBowTime = -4000;
+    },
+
+    update() {
+        // Movimento Horizontal
+        let speed = (keys["shift"] || keys["shiftleft"] || keys["shiftright"]) ? 5.5 : 3.2;
         
-        # Inventário e Equipamento (1: Espada, 2: Escudo, 3: Arco, 4: Carne Podre)
-        self.selected_slot = 1
-        self.inventory = {1: "Espada", 2: "Escudo", 3: "Arco", 4: None}
-        self.rotten_meat_count = 0
+        // Agachar
+        if (keys["c"]) {
+            if (this.height !== this.crouchHeight) {
+                this.height = this.crouchHeight;
+                this.y += (this.normalHeight - this.crouchHeight);
+            }
+            speed *= 0.5; // Mais lento agachado
+        } else {
+            if (this.height !== this.normalHeight) {
+                this.y -= (this.normalHeight - this.crouchHeight);
+                this.height = this.normalHeight;
+            }
+        }
 
-        # Cooldowns (em milissegundos)
-        self.last_sword_time = 0
-        self.last_bow_time = 0
-        self.sword_cooldown = 4000
-        self.bow_cooldown = 4000
+        this.vx = 0;
+        if (keys["a"] || keys["arrowleft"]) this.vx = -speed;
+        if (keys["d"] || keys["arrowright"]) this.vx = speed;
 
-        # Mecânica do Escudo
-        self.shield_charges = 4
-        self.shield_regen_timer = 0
-        self.is_blocking = False
+        // Pular
+        if ((keys[" "] || keys["space"]) && this.isGrounded) {
+            this.vy = -11.5;
+            this.isGrounded = false;
+        }
 
-        # Animação Arco
-        self.bow_pulling = False
-        self.bow_pull_timer = 0
+        // Gravidade
+        this.vy += 0.55;
+        this.x += this.vx;
+        this.y += this.vy;
 
-    def handle_input(self, keys):
-        speed = 5 if keys[pygame.K_LSHIFT] or keys[pygame.K_RSHIFT] else 3
-        self.vx = 0
+        // Colisão Mundo
+        if (this.x < 0) this.x = 0;
+        if (this.x > WORLD_WIDTH - this.width) this.x = WORLD_WIDTH - this.width;
 
-        if keys[pygame.K_a] or keys[pygame.K_LEFT]:
-            self.vx = -speed
-        if keys[pygame.K_d] or keys[pygame.K_RIGHT]:
-            self.vx = speed
+        if (this.y + this.height >= GROUND_Y) {
+            this.y = GROUND_Y - this.height;
+            this.vy = 0;
+            this.isGrounded = true;
+        }
 
-        # Agachar
-        if keys[pygame.K_c]:
-            if self.rect.height != self.crouch_height:
-                self.rect.height = self.crouch_height
-                self.rect.y += (self.normal_height - self.crouch_height)
-        else:
-            if self.rect.height != self.normal_height:
-                self.rect.y -= (self.normal_height - self.crouch_height)
-                self.rect.height = self.normal_height
+        // Regeneração do Escudo (30 Segundos)
+        const now = performance.now();
+        if (this.shieldCharges < this.shieldMaxCharges) {
+            if (!this.isRegeneratingShield) {
+                this.isRegeneratingShield = true;
+                this.shieldRegenTimer = now;
+            } else if (now - this.shieldRegenTimer >= this.shieldRegenDuration) {
+                this.shieldCharges = this.shieldMaxCharges;
+                this.isRegeneratingShield = false;
+                createFloatingText(this.x + this.width/2, this.y - 15, "Escudo Regenerado!", "#3498db");
+            }
+        }
 
-        # Pular
-        if keys[pygame.K_SPACE] and self.is_grounded:
-            self.vy = -11
-            self.is_grounded = False
+        // Animação de Balanço da Espada
+        if (this.swingAnim > 0) {
+            this.swingAnim -= 0.08;
+            if (this.swingAnim < 0) this.swingAnim = 0;
+        }
 
-        # Seleção de Atalhos
-        if keys[pygame.K_1]: self.selected_slot = 1
-        if keys[pygame.K_2]: self.selected_slot = 2
-        if keys[pygame.K_3]: self.selected_slot = 3
-        if keys[pygame.K_4]: self.selected_slot = 4
+        // Animação de Puxada do Arco
+        if (this.bowPulling) {
+            this.bowPullProgress += 0.15;
+            if (this.bowPullProgress >= 1) {
+                this.bowPullProgress = 0;
+                this.bowPulling = false;
+            }
+        }
+    },
 
-    def update(self, ground_y):
-        # Gravidade
-        self.vy += 0.5
-        self.rect.x += self.vx
-        self.rect.y += self.vy
+    draw() {
+        const renderX = this.x - cameraX;
 
-        # Colisão com Chão
-        if self.rect.bottom >= ground_y:
-            self.rect.bottom = ground_y
-            self.vy = 0
-            self.is_grounded = True
+        // Sombra
+        ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
+        ctx.beginPath();
+        ctx.ellipse(renderX + this.width/2, GROUND_Y, 18, 6, 0, 0, Math.PI * 2);
+        ctx.fill();
 
-        # Regeneração do Escudo (30 segundos = 30000ms)
-        now = pygame.time.get_ticks()
-        if self.shield_charges < 4:
-            if now - self.shield_regen_timer >= 30000:
-                self.shield_charges = 4
-                self.shield_regen_timer = now
+        // Corpo do Jogador (Camisa Azul)
+        ctx.fillStyle = "#2980b9";
+        ctx.fillRect(renderX + 4, this.y + 18, this.width - 8, this.height - 28);
 
-    def draw(self, surface, mouse_pos):
-        # Corpo do Jogador
-        pygame.draw.rect(surface, BLUE, self.rect)
-        # Cabeça
-        pygame.draw.rect(surface, SKIN_COLOR, (self.rect.x + 4, self.rect.y + 4, 24, 20))
+        // Calça (Jeans Escuro)
+        ctx.fillStyle = "#1a252f";
+        ctx.fillRect(renderX + 6, this.y + this.height - 10, 8, 10);
+        ctx.fillRect(renderX + this.width - 14, this.y + this.height - 10, 8, 10);
 
-        # Posição do Braço Direito estendido em direção ao cursor
-        arm_start_x = self.rect.x + 24
-        arm_start_y = self.rect.y + 24
-        angle = math.atan2(mouse_pos[1] - arm_start_y, mouse_pos[0] - arm_start_x)
-        arm_length = 18
-        arm_end_x = arm_start_x + math.cos(angle) * arm_length
-        arm_end_y = arm_start_y + math.sin(angle) * arm_length
+        // Cabeça
+        ctx.fillStyle = "#f1c40f"; // Cabelo Loiro
+        ctx.fillRect(renderX + 2, this.y, this.width - 4, 8);
+        ctx.fillStyle = "#f39c12"; // Rosto / Pele
+        ctx.fillRect(renderX + 4, this.y + 6, this.width - 8, 14);
 
-        # Desenhar Braço Direito
-        pygame.draw.line(surface, SKIN_COLOR, (arm_start_x, arm_start_y), (arm_end_x, arm_end_y), 6)
+        // Olho virado para o mouse
+        ctx.fillStyle = "#2c3e50";
+        const eyeOffsetX = (mouseWorldPos.x > this.x + this.width/2) ? 18 : 8;
+        ctx.fillRect(renderX + eyeOffsetX, this.y + 10, 4, 4);
 
-        # Desenhar Equipamento Selecionado no Braço
-        item = self.inventory.get(self.selected_slot)
-        if item == "Espada":
-            sword_len = 30
-            tip_x = arm_end_x + math.cos(angle) * sword_len
-            tip_y = arm_end_y + math.sin(angle) * sword_len
-            pygame.draw.line(surface, GRAY, (arm_end_x, arm_end_y), (tip_x, tip_y), 5)
-            pygame.draw.circle(surface, DARK_GRAY, (int(arm_end_x), int(arm_end_y)), 4)
+        // --- BRAÇO DIREITO E EQUIPAMENTO ---
+        const shoulderX = renderX + (mouseWorldPos.x > this.x + this.width/2 ? 22 : 10);
+        const shoulderY = this.y + 22;
+
+        const angle = Math.atan2(mouseWorldPos.y - shoulderY, mouseWorldPos.x - shoulderX);
+        const armLength = 16;
         
-        elif item == "Escudo":
-            # Escudo Gladiador Triangular de Ferro
-            p1 = (arm_end_x + math.cos(angle) * 12, arm_end_y + math.sin(angle) * 12)
-            p2 = (arm_end_x + math.cos(angle + 1.2) * 16, arm_end_y + math.sin(angle + 1.2) * 16)
-            p3 = (arm_end_x + math.cos(angle - 1.2) * 16, arm_end_y + math.sin(angle - 1.2) * 16)
-            pygame.draw.polygon(surface, LIGHT_GRAY, [p1, p2, p3])
-            pygame.draw.polygon(surface, DARK_GRAY, [p1, p2, p3], 2)
+        const handX = shoulderX + Math.cos(angle) * armLength;
+        const handY = shoulderY + Math.sin(angle) * armLength;
 
-        elif item == "Arco":
-            # Arco com Animação de Puxada
-            pull = 6 if self.bow_pulling else 0
-            bow_r = 16
-            perp_angle = angle + math.pi / 2
-            top = (arm_end_x + math.cos(perp_angle) * bow_r, arm_end_y + math.sin(perp_angle) * bow_r)
-            bot = (arm_end_x - math.cos(perp_angle) * bow_r, arm_end_y - math.sin(perp_angle) * bow_r)
-            mid_string = (arm_end_x - math.cos(angle) * pull, arm_end_y - math.sin(angle) * pull)
+        // Desenhar Braço Direito
+        ctx.strokeStyle = "#e67e22";
+        ctx.lineWidth = 6;
+        ctx.lineCap = "round";
+        ctx.beginPath();
+        ctx.moveTo(shoulderX, shoulderY);
+        ctx.lineTo(handX, handY);
+        ctx.stroke();
+
+        // Desenhar Arma / Equipamento Selecionado
+        ctx.save();
+        ctx.translate(handX, handY);
+        ctx.rotate(angle);
+
+        if (this.selectedSlot === 1) {
+            // 1. ESPADA PESADA DE FERRO
+            let swingAngle = (this.swingAnim > 0) ? Math.sin(this.swingAnim * Math.PI) * 0.8 : 0;
+            ctx.rotate(swingAngle);
+
+            // Cabo
+            ctx.fillStyle = "#7f8c8d";
+            ctx.fillRect(-2, -2, 8, 4);
+            // Guarda
+            ctx.fillStyle = "#e74c3c";
+            ctx.fillRect(6, -6, 4, 12);
+            // Lâmina de Ferro
+            ctx.fillStyle = "#ecf0f1";
+            ctx.beginPath();
+            ctx.moveTo(10, -4);
+            ctx.lineTo(42, -2);
+            ctx.lineTo(48, 0);
+            ctx.lineTo(42, 2);
+            ctx.lineTo(10, 4);
+            ctx.closePath();
+            ctx.fill();
+            ctx.strokeStyle = "#bdc3c7";
+            ctx.stroke();
+
+        } else if (this.selectedSlot === 2) {
+            // 2. ESCUDO DE FERRO GLADIADOR TRIANGULAR
+            ctx.rotate(Math.PI / 2); // Alinha o escudo na vertical
+
+            // Brilho / Aura do Escudo se tiver cargas
+            if (this.shieldCharges > 0) {
+                ctx.fillStyle = "rgba(52, 152, 219, 0.25)";
+                ctx.beginPath();
+                ctx.arc(0, 0, 22, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            // Formato Triangular
+            ctx.fillStyle = (this.shieldCharges > 0) ? "#95a5a6" : "#7f8c8d";
+            ctx.beginPath();
+            ctx.moveTo(-16, -14);
+            ctx.lineTo(16, -14);
+            ctx.lineTo(0, 22);
+            ctx.closePath();
+            ctx.fill();
+
+            // Borda de Aço
+            ctx.strokeStyle = (this.shieldCharges > 0) ? "#ecf0f1" : "#34495e";
+            ctx.lineWidth = 3;
+            ctx.stroke();
+
+            // Detalhes no centro do Escudo
+            ctx.fillStyle = "#c0392b";
+            ctx.beginPath();
+            ctx.arc(0, -2, 5, 0, Math.PI * 2);
+            ctx.fill();
+
+        } else if (this.selectedSlot === 3) {
+            // 3. ARCO DE CAÇA
+            const pullOffset = this.bowPullProgress * 8;
+
+            // Arco (Madeira Curvada)
+            ctx.strokeStyle = "#8e44ad";
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.arc(0, 0, 20, -Math.PI / 2.2, Math.PI / 2.2);
+            ctx.stroke();
+
+            // Corda do Arco
+            ctx.strokeStyle = "#ffffff";
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.moveTo(Math.cos(-Math.PI / 2.2) * 20, Math.sin(-Math.PI / 2.2) * 20);
+            ctx.lineTo(-pullOffset, 0);
+            ctx.lineTo(Math.cos(Math.PI / 2.2) * 20, Math.sin(Math.PI / 2.2) * 20);
+            ctx.stroke();
+
+            // Flecha posicionada se estiver puxando
+            if (this.bowPulling) {
+                ctx.strokeStyle = "#f39c12";
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(-pullOffset, 0);
+                ctx.lineTo(22, 0);
+                ctx.stroke();
+            }
+
+        } else if (this.selectedSlot === 4 && this.rottenMeatCount > 0) {
+            // 4. ITEM DROPAR / CARNE PODRE NA MÃO
+            ctx.fillStyle = "#556b2f";
+            ctx.fillRect(4, -8, 14, 16);
+            ctx.strokeStyle = "#2e3b14";
+            ctx.strokeRect(4, -8, 14, 16);
+        }
+
+        ctx.restore();
+    }
+};
+
+// DISPARO DO ARCO
+function triggerBowShoot(now) {
+    if (now - player.lastBowTime >= player.bowCooldown) {
+        player.lastBowTime = now;
+        player.bowPulling = true;
+        player.bowPullProgress = 0;
+
+        const shoulderX = player.x + (mouseWorldPos.x > player.x + player.width/2 ? 22 : 10);
+        const shoulderY = player.y + 22;
+        
+        projectiles.push(new Projectile(shoulderX, shoulderY, mouseWorldPos.x, mouseWorldPos.y));
+    }
+}
+
+// ATAQUE COM ESPADA (HITBOX)
+function performSwordAttack() {
+    const attackRange = 70;
+    const isFacingRight = mouseWorldPos.x >= player.x + player.width/2;
+
+    zombies.forEach(z => {
+        const inXRange = isFacingRight ? 
+            (z.x >= player.x && z.x <= player.x + player.width + attackRange) :
+            (z.x + z.width >= player.x - attackRange && z.x <= player.x);
+        
+        const inYRange = Math.abs((z.y + z.height/2) - (player.y + player.height/2)) < 50;
+
+        if (inXRange && inYRange) {
+            z.hp -= 10;
+            // Impulso (Knockback)
+            z.vx = isFacingRight ? 4 : -4;
+            createFloatingText(z.x + z.width/2, z.y - 10, "-10 HP", "#e74c3c");
+        }
+    });
+}
+
+// PROJÉTEIS (FLECHAS)
+class Projectile {
+    constructor(x, y, targetX, targetY) {
+        this.x = x;
+        this.y = y;
+        this.speed = 13;
+        this.damage = 13;
+        
+        const angle = Math.atan2(targetY - y, targetX - x);
+        this.vx = Math.cos(angle) * this.speed;
+        this.vy = Math.sin(angle) * this.speed;
+        this.active = true;
+        this.width = 6;
+        this.height = 6;
+    }
+
+    update() {
+        this.x += this.vx;
+        this.y += this.vy;
+
+        if (this.x < 0 || this.x > WORLD_WIDTH || this.y < 0 || this.y > HEIGHT) {
+            this.active = false;
+        }
+    }
+
+    draw() {
+        const renderX = this.x - cameraX;
+        ctx.fillStyle = "#f1c40f";
+        ctx.beginPath();
+        ctx.arc(renderX, this.y, 4, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Rastro luminoso
+        ctx.strokeStyle = "rgba(241, 196, 15, 0.4)";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(renderX, this.y);
+        ctx.lineTo(renderX - this.vx * 2, this.y - this.vy * 2);
+        ctx.stroke();
+    }
+}
+
+let projectiles = [];
+
+// DROPS DE ITENS (CARNE PODRE)
+class DropItem {
+    constructor(x, y, count) {
+        this.x = x;
+        this.y = y;
+        this.width = 18;
+        this.height = 18;
+        this.count = count;
+        this.bounce = Math.random() * Math.PI;
+    }
+
+    draw() {
+        this.bounce += 0.05;
+        const offsetY = Math.sin(this.bounce) * 3;
+        const renderX = this.x - cameraX;
+
+        // Desenhar pedaço de carne podre
+        ctx.fillStyle = "#556b2f";
+        ctx.fillRect(renderX, this.y + offsetY, this.width, this.height);
+        ctx.strokeStyle = "#1e2808";
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(renderX, this.y + offsetY, this.width, this.height);
+
+        // Label da quantidade
+        ctx.fillStyle = "#ffffff";
+        ctx.font = "bold 10px Arial";
+        ctx.fillText(`x${this.count}`, renderX + 2, this.y + offsetY - 3);
+    }
+}
+
+let drops = [];
+
+function pickupNearbyItems() {
+    for (let i = drops.length - 1; i >= 0; i--) {
+        let d = drops[i];
+        let dist = Math.hypot((player.x + player.width/2) - (d.x + d.width/2), (player.y + player.height/2) - (d.y + d.height/2));
+        if (dist < 70) {
+            player.rottenMeatCount += d.count;
+            player.inventory[4] = `Carne Podre (${player.rottenMeatCount})`;
+            createFloatingText(d.x, d.y, `+${d.count} Carne Podre`, "#27ae60");
+            drops.splice(i, 1);
+        }
+    }
+}
+
+function dropCurrentItem() {
+    if (player.selectedSlot === 4 && player.rottenMeatCount > 0) {
+        drops.push(new DropItem(player.x, player.y + 10, player.rottenMeatCount));
+        createFloatingText(player.x, player.y - 10, `Dropou x${player.rottenMeatCount}`, "#e67e22");
+        player.rottenMeatCount = 0;
+        player.inventory[4] = null;
+    }
+}
+
+// ZUMBIS (MOBS)
+class Zombie {
+    constructor(x, y) {
+        this.x = x;
+        this.y = y;
+        this.width = 32;
+        this.height = 58;
+        this.hp = 30;
+        this.maxHp = 30;
+        this.speed = 1.4 + Math.random() * 0.4;
+        this.damage = 8;
+        this.attackCooldown = 0;
+        this.vx = 0;
+    }
+
+    update() {
+        if (this.attackCooldown > 0) this.attackCooldown--;
+
+        // Desaceleração de Knockback
+        this.x += this.vx;
+        this.vx *= 0.8;
+
+        // Avança em direção ao Player
+        if (Math.abs(this.vx) < 0.2) {
+            if (this.x < player.x) {
+                this.x += this.speed;
+            } else if (this.x > player.x) {
+                this.x -= this.speed;
+            }
+        }
+
+        // Colisão / Ataque ao Player
+        if (this.checkCollision(player) && this.attackCooldown === 0) {
+            this.attackCooldown = 50; // ~0.8 segundos entre ataques
             
-            pygame.draw.line(surface, BROWN, top, bot, 3)
-            pygame.draw.line(surface, WHITE, top, mid_string, 1)
-            pygame.draw.line(surface, WHITE, bot, mid_string, 1)
+            // Verifica se o Jogador defende com Escudo
+            if (player.selectedSlot === 2 && player.shieldCharges > 0) {
+                player.shieldCharges--;
+                createFloatingText(player.x + player.width/2, player.y - 15, "BLOQUEADO!", "#3498db");
+            } else {
+                player.hp -= this.damage;
+                createFloatingText(player.x + player.width/2, player.y - 15, `-${this.damage} HP`, "#e74c3c");
+            }
+        }
+    }
 
+    checkCollision(rect) {
+        return (
+            this.x < rect.x + rect.width &&
+            this.x + this.width > rect.x &&
+            this.y < rect.y + rect.height &&
+            this.y + this.height > rect.y
+        );
+    }
 
-# --- SISTEMA DO JOGO ---
+    draw() {
+        const renderX = this.x - cameraX;
 
-player = Player(180, 420)
-zombies = [Zombie(700, 420), Zombie(850, 420)]
-projectiles = []
-drops = []
-ground_level = 480
+        // Sombra
+        ctx.fillStyle = "rgba(0, 0, 0, 0.25)";
+        ctx.beginPath();
+        ctx.ellipse(renderX + this.width/2, GROUND_Y, 16, 5, 0, 0, Math.PI * 2);
+        ctx.fill();
 
-# Botões do Menu
-btn_start = pygame.Rect(WIDTH // 2 - 100, 320, 200, 45)
-btn_exit = pygame.Rect(WIDTH // 2 - 100, 380, 200, 45)
+        // Corpo do Zumbi (Roupas rasgadas verdes escuro)
+        ctx.fillStyle = "#27ae60";
+        ctx.fillRect(renderX + 4, this.y + 18, this.width - 8, this.height - 28);
 
-def reset_game():
-    global player, zombies, projectiles, drops
-    player = Player(180, 420)
-    zombies = [Zombie(700, 420), Zombie(850, 420)]
-    projectiles = []
-    drops = []
+        // Calça
+        ctx.fillStyle = "#1e3799";
+        ctx.fillRect(renderX + 6, this.y + this.height - 10, 8, 10);
+        ctx.fillRect(renderX + this.width - 14, this.y + this.height - 10, 8, 10);
 
-running = True
-while running:
-    clock.tick(60)
-    mouse_pos = pygame.mouse.get_pos()
-    now = pygame.time.get_ticks()
+        // Cabeça Putrefata
+        ctx.fillStyle = "#556b2f";
+        ctx.fillRect(renderX + 4, this.y, this.width - 8, 18);
 
-    # --- PROCESSAMENTO DE EVENTOS ---
-    for event in pygame.event.type:
-        if event.type == pygame.QUIT:
-            running = False
+        // Olhos vermelhos brilhantes
+        ctx.fillStyle = "#e74c3c";
+        ctx.fillRect(renderX + 6, this.y + 6, 4, 4);
+        ctx.fillRect(renderX + 20, this.y + 6, 4, 4);
 
-        if current_state == STATE_MENU:
-            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                if btn_start.collidepoint(mouse_pos):
-                    reset_game()
-                    current_state = STATE_GAME
-                elif btn_exit.collidepoint(mouse_pos):
-                    running = False
+        // Barra de Vida acima do Zumbi
+        ctx.fillStyle = "rgba(0,0,0,0.6)";
+        ctx.fillRect(renderX, this.y - 12, this.width, 5);
+        ctx.fillStyle = "#2ecc71";
+        const hpPercent = Math.max(0, this.hp / this.maxHp);
+        ctx.fillRect(renderX, this.y - 12, this.width * hpPercent, 5);
+    }
+}
 
-        elif current_state == STATE_GAME:
-            if event.type == pygame.KEYDOWN:
-                # [F] Pegar Itens Dropados Proximos
-                if event.key == pygame.K_f:
-                    for drop in drops[:]:
-                        if player.rect.colliderect(drop.rect.inflate(40, 40)):
-                            player.rotten_meat_count += drop.count
-                            player.inventory[4] = f"Carne Podre ({player.rotten_meat_count})"
-                            drops.remove(drop)
+let zombies = [];
 
-                # [G] Dropar Item da Mão
-                if event.key == pygame.K_g:
-                    if player.selected_slot == 4 and player.rotten_meat_count > 0:
-                        drops.append(DropItem(player.rect.x, player.rect.y, player.rotten_meat_count))
-                        player.rotten_meat_count = 0
-                        player.inventory[4] = None
+function spawnInitialZombies() {
+    zombies = [
+        new Zombie(750, GROUND_Y - 58),
+        new Zombie(1100, GROUND_Y - 58),
+        new Zombie(1500, GROUND_Y - 58)
+    ];
+}
 
-            if event.type == pygame.MOUSEBUTTONDOWN:
-                # Clique Esquerdo: Bater / Atacar
-                if event.button == 1:
-                    item = player.inventory.get(player.selected_slot)
-                    if item == "Espada" and (now - player.last_sword_time >= player.sword_cooldown):
-                        player.last_sword_time = now
-                        attack_box = player.rect.inflate(50, 20)
-                        for z in zombies:
-                            if attack_box.colliderect(z.rect):
-                                z.hp -= 10
+// --- MENU INICIAL & INTERAÇÃO ---
+const btnStart = { x: WIDTH / 2 - 110, y: 340, w: 220, h: 50 };
+const btnExit = { x: WIDTH / 2 - 110, y: 410, w: 220, h: 50 };
 
-                # Clique Direito: Atirar com Arco / Consumir Item
-                elif event.button == 3:
-                    item = player.inventory.get(player.selected_slot)
-                    if item == "Arco" and (now - player.last_bow_time >= player.bow_cooldown):
-                        player.last_bow_time = now
-                        player.bow_pulling = True
-                        player.bow_pull_timer = now
-                        projectiles.append(Projectile(player.rect.centerx, player.rect.centery, mouse_pos[0], mouse_pos[1]))
-                    
-                    elif player.selected_slot == 4 and player.rotten_meat_count > 0:
-                        player.rotten_meat_count -= 1
-                        player.hp = min(player.max_hp, player.hp + 15)
-                        if player.rotten_meat_count <= 0:
-                            player.inventory[4] = None
-                        else:
-                            player.inventory[4] = f"Carne Podre ({player.rotten_meat_count})"
-
-    # --- ATUALIZAÇÕES ---
-    if current_state == STATE_GAME:
-        keys = pygame.key.get_pressed()
-        player.handle_input(keys)
-        player.update(ground_level)
-
-        # Atualização do Arco Animação
-        if player.bow_pulling and (now - player.bow_pull_timer > 300):
-            player.bow_pulling = False
-
-        # Coleta Automática de Drops por Aproximação
-        for drop in drops[:]:
-            if player.rect.colliderect(drop.rect):
-                player.rotten_meat_count += drop.count
-                player.inventory[4] = f"Carne Podre ({player.rotten_meat_count})"
-                drops.remove(drop)
-
-        # Atualizar Projéteis
-        for p in projectiles[:]:
-            p.update()
-            if not p.active:
-                projectiles.remove(p)
-                continue
-            for z in zombies:
-                if p.rect.colliderect(z.rect):
-                    z.hp -= p.damage
-                    p.active = False
-                    if p in projectiles:
-                        projectiles.remove(p)
-                    break
-
-        # Atualizar Zumbis
-        for z in zombies[:]:
-            z.update(player.rect)
-            # Colisão Zumbi -> Jogador
-            if z.rect.colliderect(player.rect) and z.attack_cooldown == 0:
-                z.attack_cooldown = 60
-                # Bloqueio com Escudo
-                if player.inventory.get(player.selected_slot) == "Escudo" and player.shield_charges > 0:
-                    player.shield_charges -= 1
-                    if player.shield_charges == 3:
-                        player.shield_regen_timer = now
-                else:
-                    player.hp -= z.damage
-
-            # Morte do Zumbi e Drop de Carne Podre (1 a 3)
-            if z.hp <= 0:
-                meat_dropped = random.randint(1, 3)
-                drops.append(DropItem(z.rect.x, z.rect.bottom - 16, meat_dropped))
-                zombies.remove(z)
-
-        # Respawn contínuo de Zumbis para manter o desafio
-        if len(zombies) < 2 and random.randint(1, 120) == 1:
-            zombies.append(Zombie(WIDTH + 30, ground_level - 58))
-
-    # --- RENDERIZAÇÃO ---
-    screen.fill(BLACK)
-
-    if current_state == STATE_MENU:
-        # Sala de introdução
-        pygame.draw.rect(surface=screen, color=DARK_BROWN, rect=(100, 50, 800, 450))
+function handleMenuClick(e) {
+    if (mousePos.x >= btnStart.x && mousePos.x <= btnStart.x + btnStart.w &&
+        mousePos.y >= btnStart.y && mousePos.y <= btnStart.y + btnStart.h) {
         
-        # Porta no meio com luz brilhante ao fundo
-        door_rect = pygame.Rect(WIDTH // 2 - 40, 200, 80, 200)
-        pygame.draw.rect(screen, YELLOW, door_rect)
-        pygame.draw.rect(screen, WHITE, door_rect.inflate(-10, -10))
+        // Iniciar Jogo
+        player.reset();
+        spawnInitialZombies();
+        projectiles = [];
+        drops = [];
+        floatingTexts = [];
+        currentState = STATE_GAME;
+    } else if (mousePos.x >= btnExit.x && mousePos.x <= btnExit.x + btnExit.w &&
+               mousePos.y >= btnExit.y && mousePos.y <= btnExit.y + btnExit.h) {
+        alert("Obrigado por jogar Floresta Sombria!");
+    }
+}
 
-        # Armas penduradas na parede
-        pygame.draw.line(screen, GRAY, (200, 150), (260, 150), 6) # Espada na parede
-        pygame.draw.arc(screen, BROWN, (730, 130, 30, 60), -1.5, 1.5, 4) # Arco na parede
+function drawMenu() {
+    // Fundo da Sala Intro
+    ctx.fillStyle = "#1a0f0a";
+    ctx.fillRect(0, 0, WIDTH, HEIGHT);
 
-        # Título do jogo
-        title_txt = BIG_FONT.render("FLORESTA SOMBRIA", True, WHITE)
-        screen.blit(title_txt, (WIDTH // 2 - title_txt.get_width() // 2, 80))
+    // Paredes de Madeira
+    ctx.fillStyle = "#2c1d11";
+    for (let x = 0; x < WIDTH; x += 40) {
+        ctx.fillRect(x, 0, 38, HEIGHT);
+    }
 
-        # Botão Iniciar
-        pygame.draw.rect(screen, GREEN, btn_start, border_radius=8)
-        txt_start = FONT.render("Iniciar", True, WHITE)
-        screen.blit(txt_start, (btn_start.centerx - txt_start.get_width() // 2, btn_start.centery - 10))
+    // Porta no meio com Luz Brilhante no fundo
+    const doorX = WIDTH / 2 - 65;
+    const doorY = 160;
+    const doorW = 130;
+    const doorH = 240;
 
-        # Botão Sair
-        pygame.draw.rect(screen, RED, btn_exit, border_radius=8)
-        txt_exit = FONT.render("Sair", True, WHITE)
-        screen.blit(txt_exit, (btn_exit.centerx - txt_exit.get_width() // 2, btn_exit.centery - 10))
+    // Gradiente de Luz Brilhante saindo da porta
+    const lightGrd = ctx.createRadialGradient(WIDTH / 2, doorY + doorH/2, 10, WIDTH / 2, doorY + doorH/2, 220);
+    lightGrd.addColorStop(0, "#ffffff");
+    lightGrd.addColorStop(0.3, "#f39c12");
+    lightGrd.addColorStop(0.8, "rgba(241, 196, 15, 0.3)");
+    lightGrd.addColorStop(1, "rgba(0, 0, 0, 0)");
 
-    elif current_state == STATE_GAME:
-        # Fundo: Floresta Gigantesca
-        screen.fill((135, 206, 235)) # Céu
-        for i in range(0, WIDTH, 120):
-            # Arvores ao fundo
-            pygame.draw.rect(screen, BROWN, (i + 40, ground_level - 120, 25, 120))
-            pygame.draw.circle(screen, DARK_GREEN, (i + 52, ground_level - 140), 45)
+    ctx.fillStyle = lightGrd;
+    ctx.fillRect(doorX - 100, doorY - 50, doorW + 200, doorH + 100);
 
-        # Casa e Cama Inicial
-        pygame.draw.rect(screen, DARK_BROWN, (50, ground_level - 120, 180, 120)) # Casa
-        pygame.draw.rect(screen, RED, (70, ground_level - 25, 50, 25)) # Cama
-        pygame.draw.rect(screen, WHITE, (70, ground_level - 25, 15, 25)) # Travesseiro
+    // Estrutura da Porta Aberta
+    ctx.fillStyle = "#f1c40f";
+    ctx.fillRect(doorX, doorY, doorW, doorH);
 
-        # Chão
-        pygame.draw.rect(screen, GREEN, (0, ground_level, WIDTH, HEIGHT - ground_level))
+    ctx.strokeStyle = "#4a2c11";
+    ctx.lineWidth = 8;
+    ctx.strokeRect(doorX, doorY, doorW, doorH);
 
-        # Desenhar Entidades
-        for drop in drops: drop.draw(screen)
-        for proj in projectiles: proj.draw(screen)
-        for z in zombies: z.draw(screen)
-        player.draw(screen, mouse_pos)
+    // Armas Penduradas nas Paredes da Sala
+    // Espada à esquerda
+    ctx.strokeStyle = "#bdc3c7";
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(180, 220);
+    ctx.lineTo(220, 260);
+    ctx.stroke();
+    ctx.fillStyle = "#e74c3c";
+    ctx.fillRect(175, 215, 12, 12);
 
-        # --- HUD / INVENTÁRIO INFERIOR ---
-        bar_w = 320
-        bar_x = (WIDTH - bar_w) // 2
-        bar_y = HEIGHT - 65
-        pygame.draw.rect(screen, DARK_GRAY, (bar_x - 10, bar_y - 10, bar_w + 20, 60), border_radius=5)
+    // Arco à direita
+    ctx.strokeStyle = "#8e44ad";
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.arc(800, 240, 30, -Math.PI / 2, Math.PI / 2);
+    ctx.stroke();
 
-        for slot in range(1, 5):
-            slot_x = bar_x + (slot - 1) * 80
-            slot_rect = pygame.Rect(slot_x, bar_y, 70, 40)
+    // Título Principal
+    ctx.fillStyle = "#f39c12";
+    ctx.font = "bold 38px 'Segoe UI', Arial";
+    ctx.textAlign = "center";
+    ctx.fillText("FLORESTA SOMBRIA", WIDTH / 2, 90);
+
+    ctx.fillStyle = "#ecf0f1";
+    ctx.font = "16px Arial";
+    ctx.fillText("Aventura em Mundo Aberto", WIDTH / 2, 120);
+
+    // Botão INICIAR JOGO
+    const isHoverStart = mousePos.x >= btnStart.x && mousePos.x <= btnStart.x + btnStart.w &&
+                         mousePos.y >= btnStart.y && mousePos.y <= btnStart.y + btnStart.h;
+    
+    ctx.fillStyle = isHoverStart ? "#27ae60" : "#2ecc71";
+    ctx.beginPath();
+    ctx.roundRect(btnStart.x, btnStart.y, btnStart.w, btnStart.h, 8);
+    ctx.fill();
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 20px Arial";
+    ctx.fillText("INICIAR JOGO", WIDTH / 2, btnStart.y + 32);
+
+    // Botão SAIR
+    const isHoverExit = mousePos.x >= btnExit.x && mousePos.x <= btnExit.x + btnExit.w &&
+                        mousePos.y >= btnExit.y && mousePos.y <= btnExit.y + btnExit.h;
+    
+    ctx.fillStyle = isHoverExit ? "#c0392b" : "#e74c3c";
+    ctx.beginPath();
+    ctx.roundRect(btnExit.x, btnExit.y, btnExit.w, btnExit.h, 8);
+    ctx.fill();
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 20px Arial";
+    ctx.fillText("SAIR", WIDTH / 2, btnExit.y + 32);
+}
+
+// --- LÓGICA DO MUNDO DO JOGO ---
+function drawWorldBackground() {
+    // Céu com gradiente
+    const skyGrd = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
+    skyGrd.addColorStop(0, "#1a2a3a");
+    skyGrd.addColorStop(1, "#3a5a7a");
+    ctx.fillStyle = skyGrd;
+    ctx.fillRect(0, 0, WIDTH, GROUND_Y);
+
+    // Árvores Distantes (Parallax)
+    ctx.fillStyle = "#1e382b";
+    for (let x = -cameraX * 0.3; x < WIDTH + 200; x += 140) {
+        ctx.fillRect(x + 50, GROUND_Y - 140, 24, 140);
+        ctx.beginPath();
+        ctx.arc(x + 62, GROUND_Y - 150, 48, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    // Floresta Principal (Árvores Próximas)
+    for (let x = 300; x < WORLD_WIDTH; x += 220) {
+        const renderX = x - cameraX;
+        if (renderX > -100 && renderX < WIDTH + 100) {
+            // Tronco
+            ctx.fillStyle = "#4a2c11";
+            ctx.fillRect(renderX, GROUND_Y - 180, 36, 180);
             
-            # Destaque do Slot Selecionado
-            border_color = YELLOW if player.selected_slot == slot else WHITE
-            pygame.draw.rect(screen, GRAY, slot_rect)
-            pygame.draw.rect(screen, border_color, slot_rect, 2)
+            // Copa da Árvore
+            ctx.fillStyle = "#145a32";
+            ctx.beginPath();
+            ctx.arc(renderX + 18, GROUND_Y - 200, 65, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    }
 
-            # Texto do Slot
-            label = f"{slot}: " + (player.inventory[slot] if player.inventory[slot] else "Vazio")
-            txt = FONT.render(label, True, WHITE)
-            screen.blit(txt, (slot_x + 4, slot_y + 12))
+    // Cabana Inicial do Jogador (Esquerda do Mapa)
+    const houseX = 40 - cameraX;
+    if (houseX + 220 > 0 && houseX < WIDTH) {
+        // Parede de Madeira da Casa
+        ctx.fillStyle = "#5d4037";
+        ctx.fillRect(houseX, GROUND_Y - 130, 200, 130);
 
-        # HUD de Status (Vida, Cooldowns e Escudo)
-        hp_txt = FONT.render(f"Vida: {player.hp}/{player.max_hp}", True, RED)
-        screen.blit(hp_txt, (20, 20))
+        // Telhado
+        ctx.fillStyle = "#3e2723";
+        ctx.beginPath();
+        ctx.moveTo(houseX - 15, GROUND_Y - 130);
+        ctx.lineTo(houseX + 100, GROUND_Y - 190);
+        ctx.lineTo(houseX + 215, GROUND_Y - 130);
+        ctx.closePath();
+        ctx.fill();
 
-        shield_txt = FONT.render(f"Cargas do Escudo: {player.shield_charges}/4", True, WHITE)
-        screen.blit(shield_txt, (20, 40))
+        // Cama ao Lado da qual o Player Acorda
+        ctx.fillStyle = "#7f8c8d";
+        ctx.fillRect(houseX + 30, GROUND_Y - 22, 60, 22); // Estrutura Cama
+        ctx.fillStyle = "#e74c3c";
+        ctx.fillRect(houseX + 45, GROUND_Y - 28, 45, 10); // Coberta
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(houseX + 32, GROUND_Y - 28, 12, 10); // Travesseiro
+    }
 
-        # Cooldown indicators
-        sw_cd = max(0, int((player.sword_cooldown - (now - player.last_sword_time)) / 1000))
-        bow_cd = max(0, int((player.bow_cooldown - (now - player.last_bow_time)) / 1000))
-        cd_txt = FONT.render(f"CD Espada: {sw_cd}s | CD Arco: {bow_cd}s", True, YELLOW)
-        screen.blit(cd_txt, (20, 60))
+    // Chão de Grama e Terra
+    ctx.fillStyle = "#27ae60"; // Grama
+    ctx.fillRect(0, GROUND_Y, WIDTH, 16);
+    ctx.fillStyle = "#795548"; // Terra
+    ctx.fillRect(0, GROUND_Y + 16, WIDTH, HEIGHT - GROUND_Y - 16);
+}
 
-    pygame.display.flip()
+function drawHUD() {
+    const now = performance.now();
 
-pygame.quit()
-sys.exit()
+    // Barra de Vida
+    ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
+    ctx.fillRect(16, 16, 208, 22);
+    ctx.fillStyle = "#e74c3c";
+    ctx.fillRect(20, 20, Math.max(0, (player.hp / player.maxHp) * 200), 14);
+
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 12px Arial";
+    ctx.textAlign = "left";
+    ctx.fillText(`VIDA: ${Math.ceil(player.hp)} / ${player.maxHp}`, 26, 32);
+
+    // --- BARRA INFERIOR DE INVENTÁRIO ---
+    const slotW = 75;
+    const slotH = 50;
+    const totalW = slotW * 4 + 30;
+    const startX = (WIDTH - totalW) / 2;
+    const startY = HEIGHT - 70;
+
+    // Fundo do Inventário
+    ctx.fillStyle = "rgba(15, 18, 28, 0.9)";
+    ctx.beginPath();
+    ctx.roundRect(startX - 10, startY - 8, totalW + 20, slotH + 16, 8);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.2)";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    for (let slot = 1; slot <= 4; slot++) {
+        const x = startX + (slot - 1) * (slotW + 10);
+        const y = startY;
+
+        const isSelected = (player.selectedSlot === slot);
+        ctx.fillStyle = isSelected ? "rgba(52, 152, 219, 0.3)" : "rgba(255, 255, 255, 0.05)";
+        ctx.beginPath();
+        ctx.roundRect(x, y, slotW, slotH, 6);
+        ctx.fill();
+
+        ctx.strokeStyle = isSelected ? "#f1c40f" : "rgba(255, 255, 255, 0.2)";
+        ctx.lineWidth = isSelected ? 2.5 : 1;
+        ctx.stroke();
+
+        // Número do Slot
+        ctx.fillStyle = "#f1c40f";
+        ctx.font = "bold 11px Arial";
+        ctx.fillText(`[${slot}]`, x + 5, y + 14);
+
+        // Nome / Status do Item
+        ctx.fillStyle = "#ffffff";
+        ctx.font = "10px Arial";
+        
+        let label = "Vazio";
+        let subText = "";
+
+        if (slot === 1) {
+            label = "Espada";
+            const cd = Math.max(0, ((player.swordCooldown - (now - player.lastSwordTime)) / 1000)).toFixed(1);
+            if (cd > 0) subText = `${cd}s`;
+        } else if (slot === 2) {
+            label = "Escudo";
+            subText = `${player.shieldCharges}/4 Def`;
+            if (player.shieldCharges < 4) {
+                const regenCD = Math.max(0, ((player.shieldRegenDuration - (now - player.shieldRegenTimer)) / 1000)).toFixed(0);
+                subText += ` (${regenCD}s)`;
+            }
+        } else if (slot === 3) {
+            label = "Arco";
+            const cd = Math.max(0, ((player.bowCooldown - (now - player.lastBowTime)) / 1000)).toFixed(1);
+            if (cd > 0) subText = `${cd}s`;
+        } else if (slot === 4) {
+            if (player.rottenMeatCount > 0) {
+                label = "Carne Podre";
+                subText = `qtd: ${player.rottenMeatCount}`;
+            }
+        }
+
+        ctx.fillText(label, x + 5, y + 28);
+        if (subText) {
+            ctx.fillStyle = "#e67e22";
+            ctx.fillText(subText, x + 5, y + 42);
+        }
+    }
+}
+
+// --- GAMELOOP PRINCIPAL ---
+function gameLoop() {
+    ctx.clearRect(0, 0, WIDTH, HEIGHT);
+
+    if (currentState === STATE_MENU) {
+        drawMenu();
+    } else if (currentState === STATE_GAME) {
+        // Atualizações
+        player.update();
+        updateCamera();
+
+        // Coleta automática se aproximar dos drops
+        for (let i = drops.length - 1; i >= 0; i--) {
+            let d = drops[i];
+            let dist = Math.hypot((player.x + player.width/2) - (d.x + d.width/2), (player.y + player.height/2) - (d.y + d.height/2));
+            if (dist < 32) {
+                player.rottenMeatCount += d.count;
+                player.inventory[4] = `Carne Podre (${player.rottenMeatCount})`;
+                createFloatingText(d.x, d.y, `+${d.count} Carne Podre`, "#27ae60");
+                drops.splice(i, 1);
+            }
+        }
+
+        // Atualizar Projéteis
+        for (let i = projectiles.length - 1; i >= 0; i--) {
+            let p = projectiles[i];
+            p.update();
+            if (!p.active) {
+                projectiles.splice(i, 1);
+                continue;
+            }
+
+            // Colisão Flecha -> Zumbi
+            for (let z of zombies) {
+                if (p.x >= z.x && p.x <= z.x + z.width && p.y >= z.y && p.y <= z.y + z.height) {
+                    z.hp -= p.damage;
+                    z.vx = (p.vx > 0) ? 3 : -3; // Impulso
+                    createFloatingText(z.x + z.width/2, z.y - 10, `-${p.damage} HP`, "#f1c40f");
+                    p.active = false;
+                    break;
+                }
+            }
+        }
+
+        // Atualizar Zumbis
+        for (let i = zombies.length - 1; i >= 0; i--) {
+            let z = zombies[i];
+            z.update();
+
+            // Morte do Zumbi -> Dropa de 1 a 3 Carnes Podres
+            if (z.hp <= 0) {
+                const count = Math.floor(Math.random() * 3) + 1;
+                drops.push(new DropItem(z.x + z.width/2, GROUND_Y - 20, count));
+                zombies.splice(i, 1);
+            }
+        }
+
+        // Respawn de Zumbis para manter a jogabilidade viva na floresta
+        if (zombies.length < 3 && Math.random() < 0.008) {
+            const spawnX = Math.random() < 0.5 ? player.x - 500 : player.x + 500;
+            if (spawnX > 300 && spawnX < WORLD_WIDTH) {
+                zombies.push(new Zombie(spawnX, GROUND_Y - 58));
+            }
+        }
+
+        updateFloatingTexts();
+
+        // Renderização do Jogo
+        drawWorldBackground();
+
+        drops.forEach(d => d.draw());
+        projectiles.forEach(p => p.draw());
+        zombies.forEach(z => z.draw());
+        player.draw();
+
+        drawFloatingTexts();
+        drawHUD();
+
+        // Game Over
+        if (player.hp <= 0) {
+            ctx.fillStyle = "rgba(0, 0, 0, 0.75)";
+            ctx.fillRect(0, 0, WIDTH, HEIGHT);
+            ctx.fillStyle = "#e74c3c";
+            ctx.font = "bold 42px Arial";
+            ctx.textAlign = "center";
+            ctx.fillText("VOCÊ MORREU", WIDTH / 2, HEIGHT / 2 - 20);
+            ctx.fillStyle = "#ffffff";
+            ctx.font = "18px Arial";
+            ctx.fillText("Clique para Voltar ao Menu", WIDTH / 2, HEIGHT / 2 + 30);
+
+            const handleRestart = () => {
+                currentState = STATE_MENU;
+                canvas.removeEventListener("click", handleRestart);
+            };
+            canvas.addEventListener("click", handleRestart);
+        }
+    }
+
+    requestAnimationFrame(gameLoop);
+}
+
+// Iniciar Loop
+requestAnimationFrame(gameLoop);
+</script>
+
+</body>
+</html>
