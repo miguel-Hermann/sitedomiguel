@@ -1106,3 +1106,270 @@ requestAnimationFrame(gameLoop);
 
 </body>
 </html>
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Survival Wave Game</title>
+    <style>
+        body { margin: 0; background: #111; color: #fff; font-family: sans-serif; overflow: hidden; }
+        canvas { display: block; margin: 0 auto; background: #222; }
+    </style>
+</head>
+<body>
+<canvas id="gameCanvas" width="800" height="600"></canvas>
+
+<script>
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
+
+// --- ESTADO DO JOGO ---
+let onda = 1;
+let mobsRestantes = 0;
+let chaoItens = [];
+let teclas = {};
+
+window.addEventListener("keydown", e => { teclas[e.key.toLowerCase()] = true; });
+window.addEventListener("keyup", e => { teclas[e.key.toLowerCase()] = false; });
+
+// --- JOGADOR ---
+const player = {
+    x: 400, y: 300, r: 15, hp: 100, maxHp: 100,
+    slots: [null, null, null, null, null], // 5 Slots
+    flechasOssos: 0,
+    cooldowns: { espada: 0, arco: 0, escudoRegen: 0 },
+    escudoAtivo: false,
+    veneno: { ativo: false, tempo: 0, timerDano: 0 }
+};
+
+// --- Mobs & Bosses ---
+let mobs = [];
+let projeteis = [];
+let bossAtual = null;
+
+class Enemy {
+    constructor(x, y, tipo) {
+        this.x = x; this.y = y; this.tipo = tipo;
+        if(tipo === 'zumbi') { this.hp = 30; this.r = 15; this.cor = '#2e7d32'; }
+        if(tipo === 'esqueleto') { this.hp = 25; this.r = 12; this.cor = '#e0e0e0'; this.cooldownTiro = 0; }
+        if(tipo === 'aranha') { this.hp = 40; this.r = 10; this.cor = '#8e24aa'; }
+    }
+    update() {
+        let dx = player.x - this.x;
+        let dy = player.y - this.y;
+        let dist = Math.hypot(dx, dy);
+        
+        // Movimento básico
+        if (dist > 20) {
+            this.x += (dx / dist) * 1.5;
+            this.y += (dy / dist) * 1.5;
+        }
+
+        // Ataque Esqueleto (Arco: 3.5s)
+        if (this.tipo === 'esqueleto') {
+            this.cooldownTiro += 1/60;
+            if (this.cooldownTiro >= 3.5) {
+                projeteis.push({ x: this.x, y: this.y, vx: (dx/dist)*4, vy: (dy/dist)*4, dano: 10, deInimigo: true, tipo: 'flecha' });
+                this.cooldownTiro = 0;
+            }
+        }
+
+        // Ataque Aranha (Dano + Veneno)
+        if (this.tipo === 'aranha' && dist < 25) {
+            if (!player.veneno.ativo) {
+                player.hp -= 10;
+                player.veneno = { ativo: true, tempo: 5, timerDano: 0 };
+            }
+        }
+    }
+    draw() {
+        ctx.fillStyle = this.cor;
+        ctx.beginPath(); ctx.arc(this.x, this.y, this.r, 0, Math.PI*2); ctx.fill();
+        if(this.tipo === 'esqueleto') ctx.strokeText("🏹", this.x - 5, this.y + 4);
+    }
+}
+
+class Boss {
+    constructor(nome, hp, cor) {
+        this.nome = nome; this.hp = hp; this.maxHp = hp;
+        this.x = 400; this.y = 100; this.r = 30; this.cor = cor;
+        this.timerAtaque = 0;
+        this.voador = (nome === 'Fenix');
+        this.caido = false;
+        this.timerQueda = 0;
+    }
+    update() {
+        this.timerAtaque += 1/60;
+        
+        // Lógica Fenix
+        if (this.nome === 'Fenix' && !this.caido) {
+            if (this.timerAtaque >= 3) {
+                projeteis.push({ x: this.x, y: this.y, vx: 0, vy: 5, dano: 20, deInimigo: true, tipo: 'fogo' });
+                this.timerAtaque = 0;
+            }
+        }
+        
+        // Lógica Yeti (Troca de ataques a cada 3s)
+        if (this.nome === 'Yeti' && this.timerAtaque >= 3) {
+            let rand = Math.random();
+            if (rand < 0.5) {
+                // Parede de Gelo (Desvia Pulo)
+                projeteis.push({ x: 0, y: player.y, vx: 5, vy: 0, largura: 20, altura: 100, dano: 30, tipo: 'paredeGelo', deInimigo: true });
+            } else {
+                // Projéteis de Gelo
+                projeteis.push({ x: this.x, y: this.y, vx: (player.x - this.x)*0.02, vy: (player.y - this.y)*0.02, dano: 30, tipo: 'gelo', deInimigo: true });
+            }
+            this.timerAtaque = 0;
+        }
+
+        if (this.caido) {
+            this.timerQueda -= 1/60;
+            if (this.timerQueda <= 0) this.caido = false;
+        }
+    }
+    draw() {
+        ctx.fillStyle = this.caido ? '#555' : this.cor;
+        ctx.beginPath(); ctx.arc(this.x, this.y, this.r, 0, Math.PI*2); ctx.fill();
+    }
+}
+
+// --- CONTROLE DE ONDAS ---
+function iniciarOnda(num) {
+    mobs = [];
+    bossAtual = null;
+    
+    if (num === 5) {
+        bossAtual = new Boss('Yeti', 200, '#00d2ff');
+        mobs.push(new Enemy(100, 100, 'zumbi'), new Enemy(700, 100, 'esqueleto'));
+    } else if (num === 10) {
+        bossAtual = new Boss('Fenix', 300, '#ff3d00');
+        mobs.push(new Enemy(100, 100, 'aranha'), new Enemy(700, 100, 'aranha'));
+    } else if (num === 15) {
+        // Boss Final: Fada da Natureza + Guardião
+        bossAtual = new Boss('Fada da Natureza', 600, '#00e676');
+        mobs.push(new Enemy(300, 200, 'zumbi')); // Guardião customizável
+    } else {
+        let qtd = 6 + (num * 2);
+        for(let i=0; i<qtd; i++) {
+            let tipo = i % 3 === 0 ? 'esqueleto' : (i % 3 === 1 ? 'aranha' : 'zumbi');
+            mobs.push(new Enemy(Math.random()*700 + 50, Math.random()*200, tipo));
+        }
+    }
+}
+
+// --- LOOP PRINCIPAL ---
+function update() {
+    // Timers Cooldowns
+    if (player.cooldowns.espada > 0) player.cooldowns.espada -= 1/60;
+    if (player.cooldowns.arco > 0) player.cooldowns.arco -= 1/60;
+    if (player.cooldowns.escudoRegen > 0) player.cooldowns.escudoRegen -= 1/60;
+
+    // Processar Veneno
+    if (player.veneno.ativo) {
+        player.veneno.tempo -= 1/60;
+        player.veneno.timerDano += 1/60;
+        if (player.veneno.timerDano >= 1.0) {
+            player.hp -= 4;
+            player.veneno.timerDano = 0;
+        }
+        if (player.veneno.tempo <= 0) player.veneno.ativo = false;
+    }
+
+    // Coletar Itens do Chão (Tecla F)
+    if (teclas['f']) {
+        chaoItens = chaoItens.filter(item => {
+            let dist = Math.hypot(player.x - item.x, player.y - item.y);
+            if (dist < 40) {
+                if (item.tipo === 'osso') player.flechasOssos += 1;
+                return false;
+            }
+            return true;
+        });
+    }
+
+    // Atualizar Mobs & Boss
+    mobs.forEach((m, idx) => {
+        m.update();
+        if (m.hp <= 0) {
+            if (m.tipo === 'esqueleto') chaoItens.push({ x: m.x, y: m.y, tipo: 'osso' });
+            mobs.splice(idx, 1);
+        }
+    });
+
+    if (bossAtual) {
+        bossAtual.update();
+        if (bossAtual.hp <= 0) {
+            if (bossAtual.nome === 'Yeti') chaoItens.push({ x: bossAtual.x, y: bossAtual.y, tipo: 'espadaGelo' });
+            if (bossAtual.nome === 'Fenix') chaoItens.push({ x: bossAtual.x, y: bossAtual.y, tipo: 'arcoFogo' });
+            bossAtual = null;
+        }
+    }
+
+    // Checar Fim de Onda
+    if (mobs.length === 0 && !bossAtual) {
+        onda++;
+        iniciarOnda(onda);
+    }
+}
+
+function drawHUD() {
+    // Placar da Onda (Topo Centralizado)
+    ctx.fillStyle = "#fff";
+    ctx.font = "bold 22px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText(`Onda ${onda}`, canvas.width / 2, 30);
+
+    // Barra do Boss (Se ativo)
+    if (bossAtual) {
+        ctx.fillStyle = "#333";
+        ctx.fillRect(200, 45, 400, 20);
+        ctx.fillStyle = bossAtual.cor;
+        ctx.fillRect(200, 45, (bossAtual.hp / bossAtual.maxHp) * 400, 20);
+        ctx.fillStyle = "#fff";
+        ctx.font = "14px sans-serif";
+        ctx.fillText(`[${bossAtual.nome}]`, canvas.width / 2, 60);
+    }
+
+    // 5 Slots de Inventário (Rodapé)
+    for (let i = 0; i < 5; i++) {
+        ctx.strokeStyle = "#fff";
+        ctx.strokeRect(270 + (i * 50), 530, 40, 40);
+        ctx.fillStyle = "#aaa";
+        ctx.font = "10px sans-serif";
+        ctx.fillText(`Slot ${i+1}`, 290 + (i * 50), 565);
+    }
+
+    // Itens no Chão
+    chaoItens.forEach(item => {
+        ctx.fillStyle = item.tipo === 'osso' ? '#fff' : '#ffd700';
+        ctx.beginPath(); ctx.arc(item.x, item.y, 6, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = '#fff';
+        ctx.font = '10px sans-serif';
+        ctx.fillText("[F] Pegar " + item.tipo, item.x, item.y - 10);
+    });
+}
+
+function render() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    // Desenhar Player
+    ctx.fillStyle = player.veneno.ativo ? '#76ff03' : '#29b6f6';
+    ctx.beginPath(); ctx.arc(player.x, player.y, player.r, 0, Math.PI*2); ctx.fill();
+
+    mobs.forEach(m => m.draw());
+    if (bossAtual) bossAtual.draw();
+    
+    drawHUD();
+}
+
+function gameLoop() {
+    update();
+    render();
+    requestAnimationFrame(gameLoop);
+}
+
+iniciarOnda(1);
+gameLoop();
+</script>
+</body>
+</html>
