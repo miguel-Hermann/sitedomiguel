@@ -3,60 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Floresta Sombria - Jogo de Aventura estilo Terraria</title>
+    <title>Floresta Sombria - Survival Waves</title>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-            user-select: none;
-            -webkit-user-select: none;
-        }
-
-        body, html {
-            width: 100%;
-            height: 100%;
-            overflow: hidden;
-            background-color: #0d0e15;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            color: #ffffff;
-        }
-
-        #game-container {
-            position: relative;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.8);
-            border-radius: 8px;
-            overflow: hidden;
-            border: 2px solid #2a2d3d;
-        }
-
-        canvas {
-            display: block;
-            background-color: #000;
-        }
-
-        #controls-hint {
-            position: absolute;
-            top: 12px;
-            right: 12px;
-            background: rgba(15, 18, 28, 0.85);
-            padding: 10px 14px;
-            border-radius: 6px;
-            font-size: 12px;
-            border: 1px solid rgba(255, 255, 255, 0.15);
-            pointer-events: none;
-            line-height: 1.5;
-            text-align: right;
-            backdrop-filter: blur(4px);
-        }
-
-        #controls-hint span {
-            color: #ffd700;
-            font-weight: bold;
-        }
+        * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
+        body, html { width: 100%; height: 100%; overflow: hidden; background-color: #0d0e15; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; display: flex; justify-content: center; align-items: center; color: #ffffff; }
+        #game-container { position: relative; box-shadow: 0 10px 30px rgba(0,0,0,0.8); border-radius: 8px; overflow: hidden; border: 2px solid #2a2d3d; }
+        canvas { display: block; background-color: #000; }
+        #controls-hint { position: absolute; top: 12px; right: 12px; background: rgba(15, 18, 28, 0.85); padding: 10px 14px; border-radius: 6px; font-size: 12px; border: 1px solid rgba(255, 255, 255, 0.15); pointer-events: none; line-height: 1.5; text-align: right; backdrop-filter: blur(4px); }
+        #controls-hint span { color: #ffd700; font-weight: bold; }
     </style>
 </head>
 <body>
@@ -65,18 +19,18 @@
     <canvas id="gameCanvas" width="1000" height="600"></canvas>
     
     <div id="controls-hint">
-        <b>Controles do Jogo:</b><br>
-        <span>1, 2, 3, 4</span> : Equipar Itens<br>
+        <b>Controles:</b><br>
+        <span>1, 2, 3, 4, 5</span> : Slots de Item<br>
         <span>A / D</span> : Mover | <span>Espaço</span> : Pular<br>
         <span>Shift</span> : Correr | <span>C</span> : Agachar<br>
-        <span>Botão Esquerdo Mouse</span> : Atacar com Espada / Arco<br>
-        <span>Botão Direito Mouse</span> : Atirar Arco / Consumir Item<br>
+        <span>Clique Esquerdo</span> : Atacar<br>
+        <span>Clique Direito</span> : Atirar / Consumir Item<br>
         <span>F</span> : Pegar Item | <span>G</span> : Dropar Item
     </div>
 </div>
 
 <script>
-// --- CONFIGURAÇÃO INICIAL E CANVAS ---
+// Canvas & Contexto
 const canvas = document.getElementById("gameCanvas");
 const ctx = canvas.getContext("2d");
 
@@ -85,35 +39,32 @@ const HEIGHT = canvas.height;
 const WORLD_WIDTH = 2800;
 const GROUND_Y = 480;
 
-// --- ESTADOS DO JOGO ---
+// Estados do Jogo
 const STATE_MENU = "MENU";
 const STATE_GAME = "GAME";
 let currentState = STATE_MENU;
 
-// --- ENTRADAS DE TECLADO E MOUSE ---
+// Entradas
 const keys = {};
 let mousePos = { x: 0, y: 0 };
 let mouseWorldPos = { x: 0, y: 0 };
+
+// Estrutura de Ondas e Entidades
+let onda = 1;
+let mobs = [];
+let projeteis = [];
+let drops = [];
+let floatingTexts = [];
+let bossAtual = null;
 
 window.addEventListener("keydown", (e) => {
     keys[e.key.toLowerCase()] = true;
     keys[e.code] = true;
     
     if (currentState === STATE_GAME) {
-        if (e.key === "1") player.selectedSlot = 1;
-        if (e.key === "2") player.selectedSlot = 2;
-        if (e.key === "3") player.selectedSlot = 3;
-        if (e.key === "4") player.selectedSlot = 4;
-
-        // Pegar item com F
-        if (e.key.toLowerCase() === "f") {
-            pickupNearbyItems();
-        }
-
-        // Dropar item com G
-        if (e.key.toLowerCase() === "g") {
-            dropCurrentItem();
-        }
+        if (e.key >= "1" && e.key <= "5") player.selectedSlot = parseInt(e.key);
+        if (e.key.toLowerCase() === "f") pickupNearbyItems();
+        if (e.key.toLowerCase() === "g") dropCurrentItem();
     }
 });
 
@@ -139,54 +90,43 @@ canvas.addEventListener("mousedown", (e) => {
     if (currentState === STATE_GAME) {
         const now = performance.now();
         
-        // Botão Esquerdo (Ataque Principal)
-        if (e.button === 0) {
+        if (e.button === 0) { // Clique Esquerdo
             if (player.selectedSlot === 1) {
-                // Espada
                 if (now - player.lastSwordTime >= player.swordCooldown) {
                     player.lastSwordTime = now;
-                    player.swingAnim = 1.0; // Inicia animação do balanço
+                    player.swingAnim = 1.0;
                     performSwordAttack();
                 }
             } else if (player.selectedSlot === 3) {
-                // Arco com clique esquerdo também dispara
                 triggerBowShoot(now);
             }
         }
 
-        // Botão Direito (Ação Secundária: Atirar Arco ou Consumir Item)
-        if (e.button === 2) {
+        if (e.button === 2) { // Clique Direito
             if (player.selectedSlot === 3) {
                 triggerBowShoot(now);
             } else if (player.selectedSlot === 4 && player.rottenMeatCount > 0) {
-                // Consumir Carne Podre
                 player.rottenMeatCount--;
                 player.hp = Math.min(player.maxHp, player.hp + 20);
                 createFloatingText(player.x + player.width/2, player.y - 10, "+20 HP", "#2ecc71");
-                if (player.rottenMeatCount <= 0) {
-                    player.inventory[4] = null;
-                } else {
-                    player.inventory[4] = `Carne Podre (${player.rottenMeatCount})`;
-                }
+                if (player.rottenMeatCount <= 0) player.inventory[4] = null;
+                else player.inventory[4] = `Carne Podre (${player.rottenMeatCount})`;
             }
         }
     }
 });
 
-// --- SISTEMA DE CAMERA ---
+// Câmera
 let cameraX = 0;
-
 function updateCamera() {
     cameraX = player.x + player.width / 2 - WIDTH / 2;
     if (cameraX < 0) cameraX = 0;
     if (cameraX > WORLD_WIDTH - WIDTH) cameraX = WORLD_WIDTH - WIDTH;
-    
     mouseWorldPos.x = mousePos.x + cameraX;
     mouseWorldPos.y = mousePos.y;
 }
 
-// --- TEXTO FLUTUANTE DE DANO / CURA ---
-let floatingTexts = [];
+// Textos Flutuantes
 function createFloatingText(x, y, text, color = "#ffffff") {
     floatingTexts.push({ x, y, text, color, alpha: 1.0, vy: -1.5 });
 }
@@ -196,9 +136,7 @@ function updateFloatingTexts() {
         let ft = floatingTexts[i];
         ft.y += ft.vy;
         ft.alpha -= 0.02;
-        if (ft.alpha <= 0) {
-            floatingTexts.splice(i, 1);
-        }
+        if (ft.alpha <= 0) floatingTexts.splice(i, 1);
     }
 }
 
@@ -213,9 +151,7 @@ function drawFloatingTexts() {
     ctx.restore();
 }
 
-// --- CLASSES E ENTIDADES ---
-
-// PLAYER (JOGADOR)
+// Jogador
 const player = {
     x: 140,
     y: GROUND_Y - 58,
@@ -230,29 +166,25 @@ const player = {
     maxHp: 100,
     
     selectedSlot: 1,
-    inventory: {
-        1: "Espada Pesada",
-        2: "Escudo Gladiador",
-        3: "Arco de Caça",
-        4: null
-    },
+    inventory: { 1: "Espada Pesada", 2: "Escudo Gladiador", 3: "Arco de Caça", 4: null, 5: null },
     rottenMeatCount: 0,
+    boneArrows: 0,
 
-    // Cooldowns em ms
-    lastSwordTime: 0,
-    swordCooldown: 4000,
+    // TIMERS AJUSTADOS
+    lastSwordTime: -1500,
+    swordCooldown: 1500, // Espada: 1.5s
     
-    lastBowTime: 0,
-    bowCooldown: 4000,
+    lastBowTime: -2000,
+    bowCooldown: 2000, // Arco: 2.0s
     
-    // Escudo
     shieldCharges: 4,
     shieldMaxCharges: 4,
     shieldRegenTimer: 0,
-    shieldRegenDuration: 30000, // 15 segundos
+    shieldRegenDuration: 15000, // Escudo: 15s
     isRegeneratingShield: false,
 
-    // Animações
+    veneno: { ativo: false, tempo: 0, timerDano: 0 },
+
     bowPulling: false,
     bowPullProgress: 0,
     swingAnim: 0,
@@ -266,24 +198,25 @@ const player = {
         this.hp = 100;
         this.selectedSlot = 1;
         this.rottenMeatCount = 0;
+        this.boneArrows = 0;
         this.inventory[4] = null;
+        this.inventory[5] = null;
         this.shieldCharges = 4;
         this.isRegeneratingShield = false;
-        this.lastSwordTime = -4000;
-        this.lastBowTime = -4000;
+        this.lastSwordTime = -1500;
+        this.lastBowTime = -2000;
+        this.veneno = { ativo: false, tempo: 0, timerDano: 0 };
     },
 
     update() {
-        // Movimento Horizontal
         let speed = (keys["shift"] || keys["shiftleft"] || keys["shiftright"]) ? 5.5 : 3.2;
         
-        // Agachar
         if (keys["c"]) {
             if (this.height !== this.crouchHeight) {
                 this.height = this.crouchHeight;
                 this.y += (this.normalHeight - this.crouchHeight);
             }
-            speed *= 0.5; // Mais lento agachado
+            speed *= 0.5;
         } else {
             if (this.height !== this.normalHeight) {
                 this.y -= (this.normalHeight - this.crouchHeight);
@@ -295,18 +228,15 @@ const player = {
         if (keys["a"] || keys["arrowleft"]) this.vx = -speed;
         if (keys["d"] || keys["arrowright"]) this.vx = speed;
 
-        // Pular
         if ((keys[" "] || keys["space"]) && this.isGrounded) {
             this.vy = -11.5;
             this.isGrounded = false;
         }
 
-        // Gravidade
         this.vy += 0.55;
         this.x += this.vx;
         this.y += this.vy;
 
-        // Colisão Mundo
         if (this.x < 0) this.x = 0;
         if (this.x > WORLD_WIDTH - this.width) this.x = WORLD_WIDTH - this.width;
 
@@ -316,7 +246,19 @@ const player = {
             this.isGrounded = true;
         }
 
-        // Regeneração do Escudo (15 Segundos)
+        // Veneno
+        if (this.veneno.ativo) {
+            this.veneno.tempo -= 1/60;
+            this.veneno.timerDano += 1/60;
+            if (this.veneno.timerDano >= 1.0) {
+                this.hp -= 4;
+                createFloatingText(this.x + this.width/2, this.y - 10, "-4 Veneno", "#8e24aa");
+                this.veneno.timerDano = 0;
+            }
+            if (this.veneno.tempo <= 0) this.veneno.ativo = false;
+        }
+
+        // Regeneração do Escudo
         const now = performance.now();
         if (this.shieldCharges < this.shieldMaxCharges) {
             if (!this.isRegeneratingShield) {
@@ -329,13 +271,11 @@ const player = {
             }
         }
 
-        // Animação de Balanço da Espada
         if (this.swingAnim > 0) {
             this.swingAnim -= 0.08;
             if (this.swingAnim < 0) this.swingAnim = 0;
         }
 
-        // Animação de Puxada do Arco
         if (this.bowPulling) {
             this.bowPullProgress += 0.15;
             if (this.bowPullProgress >= 1) {
@@ -354,37 +294,34 @@ const player = {
         ctx.ellipse(renderX + this.width/2, GROUND_Y, 18, 6, 0, 0, Math.PI * 2);
         ctx.fill();
 
-        // Corpo do Jogador (Camisa Azul)
-        ctx.fillStyle = "#2980b9";
+        // Corpo
+        ctx.fillStyle = this.veneno.ativo ? "#8e24aa" : "#2980b9";
         ctx.fillRect(renderX + 4, this.y + 18, this.width - 8, this.height - 28);
 
-        // Calça (Jeans Escuro)
+        // Calça
         ctx.fillStyle = "#1a252f";
         ctx.fillRect(renderX + 6, this.y + this.height - 10, 8, 10);
         ctx.fillRect(renderX + this.width - 14, this.y + this.height - 10, 8, 10);
 
         // Cabeça
-        ctx.fillStyle = "#f1c40f"; // Cabelo Loiro
+        ctx.fillStyle = "#f1c40f";
         ctx.fillRect(renderX + 2, this.y, this.width - 4, 8);
-        ctx.fillStyle = "#f39c12"; // Rosto / Pele
+        ctx.fillStyle = "#f39c12";
         ctx.fillRect(renderX + 4, this.y + 6, this.width - 8, 14);
 
-        // Olho virado para o mouse
+        // Olho
         ctx.fillStyle = "#2c3e50";
         const eyeOffsetX = (mouseWorldPos.x > this.x + this.width/2) ? 18 : 8;
         ctx.fillRect(renderX + eyeOffsetX, this.y + 10, 4, 4);
 
-        // --- BRAÇO DIREITO E EQUIPAMENTO ---
+        // Braço / Arma
         const shoulderX = renderX + (mouseWorldPos.x > this.x + this.width/2 ? 22 : 10);
         const shoulderY = this.y + 22;
-
         const angle = Math.atan2(mouseWorldPos.y - shoulderY, mouseWorldPos.x - shoulderX);
         const armLength = 16;
-        
         const handX = shoulderX + Math.cos(angle) * armLength;
         const handY = shoulderY + Math.sin(angle) * armLength;
 
-        // Desenhar Braço Direito
         ctx.strokeStyle = "#e67e22";
         ctx.lineWidth = 6;
         ctx.lineCap = "round";
@@ -393,164 +330,110 @@ const player = {
         ctx.lineTo(handX, handY);
         ctx.stroke();
 
-        // Desenhar Arma / Equipamento Selecionado
         ctx.save();
         ctx.translate(handX, handY);
         ctx.rotate(angle);
 
-        if (this.selectedSlot === 1) {
-            // 1. ESPADA PESADA DE FERRO
+        if (this.selectedSlot === 1) { // Espada
             let swingAngle = (this.swingAnim > 0) ? Math.sin(this.swingAnim * Math.PI) * 0.8 : 0;
             ctx.rotate(swingAngle);
-
-            // Cabo
-            ctx.fillStyle = "#7f8c8d";
-            ctx.fillRect(-2, -2, 8, 4);
-            // Guarda
-            ctx.fillStyle = "#e74c3c";
-            ctx.fillRect(6, -6, 4, 12);
-            // Lâmina de Ferro
+            ctx.fillStyle = "#7f8c8d"; ctx.fillRect(-2, -2, 8, 4);
+            ctx.fillStyle = "#e74c3c"; ctx.fillRect(6, -6, 4, 12);
             ctx.fillStyle = "#ecf0f1";
             ctx.beginPath();
-            ctx.moveTo(10, -4);
-            ctx.lineTo(42, -2);
-            ctx.lineTo(48, 0);
-            ctx.lineTo(42, 2);
-            ctx.lineTo(10, 4);
-            ctx.closePath();
-            ctx.fill();
-            ctx.strokeStyle = "#bdc3c7";
-            ctx.stroke();
-
-        } else if (this.selectedSlot === 2) {
-            // 2. ESCUDO DE FERRO GLADIADOR TRIANGULAR
-            ctx.rotate(Math.PI / 2); // Alinha o escudo na vertical
-
-            // Brilho / Aura do Escudo se tiver cargas
+            ctx.moveTo(10, -4); ctx.lineTo(42, -2); ctx.lineTo(48, 0); ctx.lineTo(42, 2); ctx.lineTo(10, 4);
+            ctx.closePath(); ctx.fill(); ctx.strokeStyle = "#bdc3c7"; ctx.stroke();
+        } else if (this.selectedSlot === 2) { // Escudo
+            ctx.rotate(Math.PI / 2);
             if (this.shieldCharges > 0) {
                 ctx.fillStyle = "rgba(52, 152, 219, 0.25)";
-                ctx.beginPath();
-                ctx.arc(0, 0, 22, 0, Math.PI * 2);
-                ctx.fill();
+                ctx.beginPath(); ctx.arc(0, 0, 22, 0, Math.PI * 2); ctx.fill();
             }
-
-            // Formato Triangular
             ctx.fillStyle = (this.shieldCharges > 0) ? "#95a5a6" : "#7f8c8d";
-            ctx.beginPath();
-            ctx.moveTo(-16, -14);
-            ctx.lineTo(16, -14);
-            ctx.lineTo(0, 22);
-            ctx.closePath();
-            ctx.fill();
-
-            // Borda de Aço
-            ctx.strokeStyle = (this.shieldCharges > 0) ? "#ecf0f1" : "#34495e";
-            ctx.lineWidth = 3;
-            ctx.stroke();
-
-            // Detalhes no centro do Escudo
-            ctx.fillStyle = "#c0392b";
-            ctx.beginPath();
-            ctx.arc(0, -2, 5, 0, Math.PI * 2);
-            ctx.fill();
-
-        } else if (this.selectedSlot === 3) {
-            // 3. ARCO DE CAÇA
+            ctx.beginPath(); ctx.moveTo(-16, -14); ctx.lineTo(16, -14); ctx.lineTo(0, 22); ctx.closePath(); ctx.fill();
+            ctx.strokeStyle = (this.shieldCharges > 0) ? "#ecf0f1" : "#34495e"; ctx.lineWidth = 3; ctx.stroke();
+            ctx.fillStyle = "#c0392b"; ctx.beginPath(); ctx.arc(0, -2, 5, 0, Math.PI * 2); ctx.fill();
+        } else if (this.selectedSlot === 3) { // Arco
             const pullOffset = this.bowPullProgress * 8;
-
-            // Arco (Madeira Curvada)
-            ctx.strokeStyle = "#8e44ad";
-            ctx.lineWidth = 4;
-            ctx.beginPath();
-            ctx.arc(0, 0, 20, -Math.PI / 2.2, Math.PI / 2.2);
-            ctx.stroke();
-
-            // Corda do Arco
-            ctx.strokeStyle = "#ffffff";
-            ctx.lineWidth = 1.5;
+            ctx.strokeStyle = "#8e44ad"; ctx.lineWidth = 4;
+            ctx.beginPath(); ctx.arc(0, 0, 20, -Math.PI / 2.2, Math.PI / 2.2); ctx.stroke();
+            ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 1.5;
             ctx.beginPath();
             ctx.moveTo(Math.cos(-Math.PI / 2.2) * 20, Math.sin(-Math.PI / 2.2) * 20);
             ctx.lineTo(-pullOffset, 0);
             ctx.lineTo(Math.cos(Math.PI / 2.2) * 20, Math.sin(Math.PI / 2.2) * 20);
             ctx.stroke();
-
-            // Flecha posicionada se estiver puxando
             if (this.bowPulling) {
-                ctx.strokeStyle = "#f39c12";
-                ctx.lineWidth = 2;
-                ctx.beginPath();
-                ctx.moveTo(-pullOffset, 0);
-                ctx.lineTo(22, 0);
-                ctx.stroke();
+                ctx.strokeStyle = "#f39c12"; ctx.lineWidth = 2;
+                ctx.beginPath(); ctx.moveTo(-pullOffset, 0); ctx.lineTo(22, 0); ctx.stroke();
             }
-
         } else if (this.selectedSlot === 4 && this.rottenMeatCount > 0) {
-            // 4. ITEM DROPAR / CARNE PODRE NA MÃO
-            ctx.fillStyle = "#556b2f";
-            ctx.fillRect(4, -8, 14, 16);
-            ctx.strokeStyle = "#2e3b14";
-            ctx.strokeRect(4, -8, 14, 16);
+            ctx.fillStyle = "#556b2f"; ctx.fillRect(4, -8, 14, 16); ctx.strokeStyle = "#2e3b14"; ctx.strokeRect(4, -8, 14, 16);
         }
 
         ctx.restore();
     }
 };
 
-// DISPARO DO ARCO
+// Disparo e Ataques
 function triggerBowShoot(now) {
     if (now - player.lastBowTime >= player.bowCooldown) {
         player.lastBowTime = now;
         player.bowPulling = true;
         player.bowPullProgress = 0;
-
         const shoulderX = player.x + (mouseWorldPos.x > player.x + player.width/2 ? 22 : 10);
         const shoulderY = player.y + 22;
-        
-        projectiles.push(new Projectile(shoulderX, shoulderY, mouseWorldPos.x, mouseWorldPos.y));
+        projeteis.push(new Projectile(shoulderX, shoulderY, mouseWorldPos.x, mouseWorldPos.y, 13, 13, false, 'flecha'));
     }
 }
 
-// ATAQUE COM ESPADA (HITBOX)
 function performSwordAttack() {
-    const attackRange = 70;
+    const attackRange = 75;
     const isFacingRight = mouseWorldPos.x >= player.x + player.width/2;
 
-    zombies.forEach(z => {
+    mobs.forEach(m => {
         const inXRange = isFacingRight ? 
-            (z.x >= player.x && z.x <= player.x + player.width + attackRange) :
-            (z.x + z.width >= player.x - attackRange && z.x <= player.x);
-        
-        const inYRange = Math.abs((z.y + z.height/2) - (player.y + player.height/2)) < 50;
+            (m.x >= player.x && m.x <= player.x + player.width + attackRange) :
+            (m.x + m.width >= player.x - attackRange && m.x <= player.x);
+        const inYRange = Math.abs((m.y + m.height/2) - (player.y + player.height/2)) < 60;
 
         if (inXRange && inYRange) {
-            z.hp -= 10;
-            // Impulso (Knockback)
-            z.vx = isFacingRight ? 4 : -4;
-            createFloatingText(z.x + z.width/2, z.y - 10, "-10 HP", "#e74c3c");
+            m.hp -= 15;
+            m.vx = isFacingRight ? 5 : -5;
+            createFloatingText(m.x + m.width/2, m.y - 10, "-15 HP", "#e74c3c");
         }
     });
+
+    if (bossAtual) {
+        const inXRange = isFacingRight ? 
+            (bossAtual.x >= player.x && bossAtual.x <= player.x + player.width + attackRange + 30) :
+            (bossAtual.x + bossAtual.width >= player.x - attackRange - 30 && bossAtual.x <= player.x);
+        if (inXRange) {
+            bossAtual.hp -= 15;
+            createFloatingText(bossAtual.x + bossAtual.width/2, bossAtual.y - 10, "-15 HP", "#e74c3c");
+        }
+    }
 }
 
-// PROJÉTEIS (FLECHAS)
+// Projéteis
 class Projectile {
-    constructor(x, y, targetX, targetY) {
+    constructor(x, y, targetX, targetY, speed = 12, damage = 10, deInimigo = false, tipo = 'flecha') {
         this.x = x;
         this.y = y;
-        this.speed = 13;
-        this.damage = 20;
-        
+        this.speed = speed;
+        this.damage = damage;
+        this.deInimigo = deInimigo;
+        this.tipo = tipo;
+
         const angle = Math.atan2(targetY - y, targetX - x);
         this.vx = Math.cos(angle) * this.speed;
         this.vy = Math.sin(angle) * this.speed;
         this.active = true;
-        this.width = 6;
-        this.height = 6;
     }
 
     update() {
         this.x += this.vx;
         this.y += this.vy;
-
         if (this.x < 0 || this.x > WORLD_WIDTH || this.y < 0 || this.y > HEIGHT) {
             this.active = false;
         }
@@ -558,120 +441,60 @@ class Projectile {
 
     draw() {
         const renderX = this.x - cameraX;
-        ctx.fillStyle = "#f1c40f";
+        ctx.fillStyle = this.deInimigo ? (this.tipo === 'fogo' ? '#ff3d00' : '#e0e0e0') : '#f1c40f';
         ctx.beginPath();
-        ctx.arc(renderX, this.y, 4, 0, Math.PI * 2);
+        ctx.arc(renderX, this.y, 5, 0, Math.PI * 2);
         ctx.fill();
-
-        // Rastro luminoso
-        ctx.strokeStyle = "rgba(241, 196, 15, 0.4)";
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(renderX, this.y);
-        ctx.lineTo(renderX - this.vx * 2, this.y - this.vy * 2);
-        ctx.stroke();
     }
 }
 
-let projectiles = [];
-
-// DROPS DE ITENS (CARNE PODRE)
-class DropItem {
-    constructor(x, y, count) {
+// Inimigos e Mobs
+class Enemy {
+    constructor(x, y, tipo) {
         this.x = x;
         this.y = y;
-        this.width = 18;
-        this.height = 18;
-        this.count = count;
-        this.bounce = Math.random() * Math.PI;
-    }
-
-    draw() {
-        this.bounce += 0.05;
-        const offsetY = Math.sin(this.bounce) * 3;
-        const renderX = this.x - cameraX;
-
-        // Desenhar pedaço de carne podre
-        ctx.fillStyle = "#556b2f";
-        ctx.fillRect(renderX, this.y + offsetY, this.width, this.height);
-        ctx.strokeStyle = "#1e2808";
-        ctx.lineWidth = 1.5;
-        ctx.strokeRect(renderX, this.y + offsetY, this.width, this.height);
-
-        // Label da quantidade
-        ctx.fillStyle = "#ffffff";
-        ctx.font = "bold 10px Arial";
-        ctx.fillText(`x${this.count}`, renderX + 2, this.y + offsetY - 3);
-    }
-}
-
-let drops = [];
-
-function pickupNearbyItems() {
-    for (let i = drops.length - 1; i >= 0; i--) {
-        let d = drops[i];
-        let dist = Math.hypot((player.x + player.width/2) - (d.x + d.width/2), (player.y + player.height/2) - (d.y + d.height/2));
-        if (dist < 70) {
-            player.rottenMeatCount += d.count;
-            player.inventory[4] = `Carne Podre (${player.rottenMeatCount})`;
-            createFloatingText(d.x, d.y, `+${d.count} Carne Podre`, "#27ae60");
-            drops.splice(i, 1);
-        }
-    }
-}
-
-function dropCurrentItem() {
-    if (player.selectedSlot === 4 && player.rottenMeatCount > 0) {
-        drops.push(new DropItem(player.x, player.y + 10, player.rottenMeatCount));
-        createFloatingText(player.x, player.y - 10, `Dropou x${player.rottenMeatCount}`, "#e67e22");
-        player.rottenMeatCount = 0;
-        player.inventory[4] = null;
-    }
-}
-
-// ZUMBIS (MOBS)
-class Zombie {
-    constructor(x, y) {
-        this.x = x;
-        this.y = y;
+        this.tipo = tipo;
         this.width = 32;
         this.height = 58;
-        this.hp = 30;
-        this.maxHp = 30;
-        this.speed = 1.4 + Math.random() * 0.4;
-        this.damage = 8;
-        this.attackCooldown = 0;
         this.vx = 0;
+        this.cooldownTiro = 0;
+
+        if (tipo === 'zumbi') { this.hp = 30; this.maxHp = 30; this.speed = 1.4; this.cor = '#27ae60'; }
+        if (tipo === 'esqueleto') { this.hp = 25; this.maxHp = 25; this.speed = 1.1; this.cor = '#e0e0e0'; }
+        if (tipo === 'aranha') { this.hp = 40; this.maxHp = 40; this.speed = 2.0; this.height = 30; this.cor = '#8e24aa'; }
     }
 
     update() {
-        if (this.attackCooldown > 0) this.attackCooldown--;
-
-        // Desaceleração de Knockback
         this.x += this.vx;
         this.vx *= 0.8;
 
-        // Avança em direção ao Player
+        const dx = player.x - this.x;
         if (Math.abs(this.vx) < 0.2) {
-            if (this.x < player.x) {
-                this.x += this.speed;
-            } else if (this.x > player.x) {
-                this.x -= this.speed;
+            if (dx > 0) this.x += this.speed;
+            else this.x -= this.speed;
+        }
+
+        if (this.tipo === 'esqueleto') {
+            this.cooldownTiro += 1/60;
+            if (this.cooldownTiro >= 3.5) {
+                projeteis.push(new Projectile(this.x + 16, this.y + 20, player.x + 16, player.y + 20, 8, 10, true, 'flecha'));
+                this.cooldownTiro = 0;
             }
         }
 
-        // Colisão / Ataque ao Player
-        if (this.checkCollision(player) && this.attackCooldown === 0) {
-            this.attackCooldown = 50; // ~0.8 segundos entre ataques
-            
-            // Verifica se o Jogador defende com Escudo
+        if (this.checkCollision(player)) {
+            if (this.tipo === 'aranha' && !player.veneno.ativo) {
+                player.veneno = { ativo: true, tempo: 5, timerDano: 0 };
+                createFloatingText(player.x + player.width/2, player.y - 15, "VENENO!", "#8e24aa");
+            }
             if (player.selectedSlot === 2 && player.shieldCharges > 0) {
                 player.shieldCharges--;
                 createFloatingText(player.x + player.width/2, player.y - 15, "BLOQUEADO!", "#3498db");
             } else {
-                player.hp -= this.damage;
-                createFloatingText(player.x + player.width/2, player.y - 15, `-${this.damage} HP`, "#e74c3c");
+                player.hp -= (this.tipo === 'zumbi' ? 8 : 5);
+                createFloatingText(player.x + player.width/2, player.y - 15, "-DANO", "#e74c3c");
             }
+            this.x += (dx > 0 ? -30 : 30);
         }
     }
 
@@ -686,289 +509,191 @@ class Zombie {
 
     draw() {
         const renderX = this.x - cameraX;
+        ctx.fillStyle = this.cor;
+        ctx.fillRect(renderX, this.y, this.width, this.height);
 
-        // Sombra
-        ctx.fillStyle = "rgba(0, 0, 0, 0.25)";
-        ctx.beginPath();
-        ctx.ellipse(renderX + this.width/2, GROUND_Y, 16, 5, 0, 0, Math.PI * 2);
-        ctx.fill();
-
-        // Corpo do Zumbi (Roupas rasgadas verdes escuro)
-        ctx.fillStyle = "#27ae60";
-        ctx.fillRect(renderX + 4, this.y + 18, this.width - 8, this.height - 28);
-
-        // Calça
-        ctx.fillStyle = "#1e3799";
-        ctx.fillRect(renderX + 6, this.y + this.height - 10, 8, 10);
-        ctx.fillRect(renderX + this.width - 14, this.y + this.height - 10, 8, 10);
-
-        // Cabeça Putrefata
-        ctx.fillStyle = "#556b2f";
-        ctx.fillRect(renderX + 4, this.y, this.width - 8, 18);
-
-        // Olhos vermelhos brilhantes
-        ctx.fillStyle = "#e74c3c";
-        ctx.fillRect(renderX + 6, this.y + 6, 4, 4);
-        ctx.fillRect(renderX + 20, this.y + 6, 4, 4);
-
-        // Barra de Vida acima do Zumbi
         ctx.fillStyle = "rgba(0,0,0,0.6)";
-        ctx.fillRect(renderX, this.y - 12, this.width, 5);
+        ctx.fillRect(renderX, this.y - 10, this.width, 4);
         ctx.fillStyle = "#2ecc71";
-        const hpPercent = Math.max(0, this.hp / this.maxHp);
-        ctx.fillRect(renderX, this.y - 12, this.width * hpPercent, 5);
+        ctx.fillRect(renderX, this.y - 10, this.width * Math.max(0, this.hp / this.maxHp), 4);
     }
 }
 
-let zombies = [];
+class Boss {
+    constructor(nome, hp, cor) {
+        this.nome = nome;
+        this.hp = hp;
+        this.maxHp = hp;
+        this.width = 60;
+        this.height = 80;
+        this.x = player.x + 400;
+        this.y = GROUND_Y - this.height;
+        this.cor = cor;
+        this.timerAtaque = 0;
+        this.voador = (nome === 'Fenix');
+        if (this.voador) this.y = GROUND_Y - 200;
+    }
 
-function spawnInitialZombies() {
-    zombies = [
-        new Zombie(750, GROUND_Y - 58),
-        new Zombie(1100, GROUND_Y - 58),
-        new Zombie(1500, GROUND_Y - 58)
-    ];
+    update() {
+        this.timerAtaque += 1/60;
+
+        if (this.nome === 'Fenix' && this.timerAtaque >= 2.5) {
+            projeteis.push(new Projectile(this.x + 30, this.y + 40, player.x + 16, player.y + 20, 7, 20, true, 'fogo'));
+            this.timerAtaque = 0;
+        }
+
+        if (this.nome === 'Yeti' && this.timerAtaque >= 3.0) {
+            projeteis.push(new Projectile(this.x + 30, this.y + 40, player.x + 16, player.y + 20, 9, 25, true, 'gelo'));
+            this.timerAtaque = 0;
+        }
+
+        if (this.nome === 'Fada da Natureza' && this.timerAtaque >= 2.0) {
+            projeteis.push(new Projectile(this.x + 30, this.y + 40, player.x + 16, player.y + 20, 8, 15, true, 'veneno'));
+            this.timerAtaque = 0;
+        }
+    }
+
+    draw() {
+        const renderX = this.x - cameraX;
+        ctx.fillStyle = this.cor;
+        ctx.fillRect(renderX, this.y, this.width, this.height);
+    }
 }
 
-// --- MENU INICIAL & INTERAÇÃO ---
-const btnStart = { x: WIDTH / 2 - 110, y: 340, w: 220, h: 50 };
-const btnExit = { x: WIDTH / 2 - 110, y: 410, w: 220, h: 50 };
+// Drops de Itens
+class DropItem {
+    constructor(x, y, tipo, count = 1) {
+        this.x = x; this.y = y; this.tipo = tipo; this.count = count;
+        this.width = 16; this.height = 16;
+    }
 
+    draw() {
+        const renderX = this.x - cameraX;
+        ctx.fillStyle = this.tipo === 'carne' ? '#556b2f' : '#ffffff';
+        ctx.fillRect(renderX, this.y, this.width, this.height);
+        ctx.fillStyle = "#ffffff"; ctx.font = "bold 10px Arial";
+        ctx.fillText(`[F] ${this.tipo}`, renderX - 5, this.y - 5);
+    }
+}
+
+function pickupNearbyItems() {
+    for (let i = drops.length - 1; i >= 0; i--) {
+        let d = drops[i];
+        let dist = Math.hypot((player.x + player.width/2) - (d.x + d.width/2), (player.y + player.height/2) - (d.y + d.height/2));
+        if (dist < 70) {
+            if (d.tipo === 'carne') {
+                player.rottenMeatCount += d.count;
+                player.inventory[4] = `Carne Podre (${player.rottenMeatCount})`;
+            } else if (d.tipo === 'osso') {
+                player.boneArrows += d.count;
+                player.inventory[5] = `Ossos (${player.boneArrows})`;
+            }
+            createFloatingText(d.x, d.y, `+${d.count} ${d.tipo}`, "#27ae60");
+            drops.splice(i, 1);
+        }
+    }
+}
+
+function dropCurrentItem() {
+    if (player.selectedSlot === 4 && player.rottenMeatCount > 0) {
+        drops.push(new DropItem(player.x, player.y + 10, 'carne', player.rottenMeatCount));
+        player.rottenMeatCount = 0; player.inventory[4] = null;
+    }
+}
+
+// Gerenciador de Ondas
+function iniciarOnda(num) {
+    mobs = [];
+    bossAtual = null;
+
+    if (num === 5) {
+        bossAtual = new Boss('Yeti', 200, '#00d2ff');
+        mobs.push(new Enemy(player.x + 500, GROUND_Y - 58, 'zumbi'));
+    } else if (num === 10) {
+        bossAtual = new Boss('Fenix', 300, '#ff3d00');
+        mobs.push(new Enemy(player.x + 400, GROUND_Y - 30, 'aranha'));
+    } else if (num === 15) {
+        bossAtual = new Boss('Fada da Natureza', 500, '#00e676');
+    } else {
+        let qtd = 4 + num * 2;
+        for (let i = 0; i < qtd; i++) {
+            let tipo = i % 3 === 0 ? 'esqueleto' : (i % 3 === 1 ? 'aranha' : 'zumbi');
+            let spawnX = player.x + 400 + (i * 80);
+            if (spawnX > WORLD_WIDTH - 100) spawnX = player.x - 300 - (i * 50);
+            mobs.push(new Enemy(spawnX, GROUND_Y - (tipo === 'aranha' ? 30 : 58), tipo));
+        }
+    }
+}
+
+// Menu Click
+const btnStart = { x: WIDTH / 2 - 110, y: 340, w: 220, h: 50 };
 function handleMenuClick(e) {
     if (mousePos.x >= btnStart.x && mousePos.x <= btnStart.x + btnStart.w &&
         mousePos.y >= btnStart.y && mousePos.y <= btnStart.y + btnStart.h) {
-        
-        // Iniciar Jogo
         player.reset();
-        spawnInitialZombies();
-        projectiles = [];
-        drops = [];
-        floatingTexts = [];
+        onda = 1;
+        iniciarOnda(onda);
+        projeteis = []; drops = []; floatingTexts = [];
         currentState = STATE_GAME;
-    } else if (mousePos.x >= btnExit.x && mousePos.x <= btnExit.x + btnExit.w &&
-               mousePos.y >= btnExit.y && mousePos.y <= btnExit.y + btnExit.h) {
-        alert("Obrigado por jogar Floresta Sombria!");
     }
 }
 
 function drawMenu() {
-    // Fundo da Sala Intro
-    ctx.fillStyle = "#1a0f0a";
-    ctx.fillRect(0, 0, WIDTH, HEIGHT);
+    ctx.fillStyle = "#1a0f0a"; ctx.fillRect(0, 0, WIDTH, HEIGHT);
+    ctx.fillStyle = "#f39c12"; ctx.font = "bold 38px Arial"; ctx.textAlign = "center";
+    ctx.fillText("FLORESTA SOMBRIA - SURVIVAL", WIDTH / 2, 180);
 
-    // Paredes de Madeira
-    ctx.fillStyle = "#2c1d11";
-    for (let x = 0; x < WIDTH; x += 40) {
-        ctx.fillRect(x, 0, 38, HEIGHT);
-    }
-
-    // Porta no meio com Luz Brilhante no fundo
-    const doorX = WIDTH / 2 - 65;
-    const doorY = 160;
-    const doorW = 130;
-    const doorH = 240;
-
-    // Gradiente de Luz Brilhante saindo da porta
-    const lightGrd = ctx.createRadialGradient(WIDTH / 2, doorY + doorH/2, 10, WIDTH / 2, doorY + doorH/2, 220);
-    lightGrd.addColorStop(0, "#ffffff");
-    lightGrd.addColorStop(0.3, "#f39c12");
-    lightGrd.addColorStop(0.8, "rgba(241, 196, 15, 0.3)");
-    lightGrd.addColorStop(1, "rgba(0, 0, 0, 0)");
-
-    ctx.fillStyle = lightGrd;
-    ctx.fillRect(doorX - 100, doorY - 50, doorW + 200, doorH + 100);
-
-    // Estrutura da Porta Aberta
-    ctx.fillStyle = "#f1c40f";
-    ctx.fillRect(doorX, doorY, doorW, doorH);
-
-    ctx.strokeStyle = "#4a2c11";
-    ctx.lineWidth = 8;
-    ctx.strokeRect(doorX, doorY, doorW, doorH);
-
-    // Armas Penduradas nas Paredes da Sala
-    // Espada à esquerda
-    ctx.strokeStyle = "#bdc3c7";
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(180, 220);
-    ctx.lineTo(220, 260);
-    ctx.stroke();
-    ctx.fillStyle = "#e74c3c";
-    ctx.fillRect(175, 215, 12, 12);
-
-    // Arco à direita
-    ctx.strokeStyle = "#8e44ad";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(800, 240, 30, -Math.PI / 2, Math.PI / 2);
-    ctx.stroke();
-
-    // Título Principal
-    ctx.fillStyle = "#f39c12";
-    ctx.font = "bold 38px 'Segoe UI', Arial";
-    ctx.textAlign = "center";
-    ctx.fillText("FLORESTA SOMBRIA", WIDTH / 2, 90);
-
-    ctx.fillStyle = "#ecf0f1";
-    ctx.font = "16px Arial";
-    ctx.fillText("Aventura em Mundo Aberto", WIDTH / 2, 120);
-
-    // Botão INICIAR JOGO
-    const isHoverStart = mousePos.x >= btnStart.x && mousePos.x <= btnStart.x + btnStart.w &&
-                         mousePos.y >= btnStart.y && mousePos.y <= btnStart.y + btnStart.h;
-    
-    ctx.fillStyle = isHoverStart ? "#27ae60" : "#2ecc71";
-    ctx.beginPath();
-    ctx.roundRect(btnStart.x, btnStart.y, btnStart.w, btnStart.h, 8);
-    ctx.fill();
-    ctx.strokeStyle = "#ffffff";
-    ctx.lineWidth = 2;
-    ctx.stroke();
-
-    ctx.fillStyle = "#ffffff";
-    ctx.font = "bold 20px Arial";
+    ctx.fillStyle = "#2ecc71";
+    ctx.beginPath(); ctx.roundRect(btnStart.x, btnStart.y, btnStart.w, btnStart.h, 8); ctx.fill();
+    ctx.fillStyle = "#ffffff"; ctx.font = "bold 20px Arial";
     ctx.fillText("INICIAR JOGO", WIDTH / 2, btnStart.y + 32);
-
-    // Botão SAIR
-    const isHoverExit = mousePos.x >= btnExit.x && mousePos.x <= btnExit.x + btnExit.w &&
-                        mousePos.y >= btnExit.y && mousePos.y <= btnExit.y + btnExit.h;
-    
-    ctx.fillStyle = isHoverExit ? "#c0392b" : "#e74c3c";
-    ctx.beginPath();
-    ctx.roundRect(btnExit.x, btnExit.y, btnExit.w, btnExit.h, 8);
-    ctx.fill();
-    ctx.strokeStyle = "#ffffff";
-    ctx.lineWidth = 2;
-    ctx.stroke();
-
-    ctx.fillStyle = "#ffffff";
-    ctx.font = "bold 20px Arial";
-    ctx.fillText("SAIR", WIDTH / 2, btnExit.y + 32);
 }
 
-// --- LÓGICA DO MUNDO DO JOGO ---
 function drawWorldBackground() {
-    // Céu com gradiente
-    const skyGrd = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
-    skyGrd.addColorStop(0, "#1a2a3a");
-    skyGrd.addColorStop(1, "#3a5a7a");
-    ctx.fillStyle = skyGrd;
-    ctx.fillRect(0, 0, WIDTH, GROUND_Y);
-
-    // Árvores Distantes (Parallax)
-    ctx.fillStyle = "#1e382b";
-    for (let x = -cameraX * 0.3; x < WIDTH + 200; x += 140) {
-        ctx.fillRect(x + 50, GROUND_Y - 140, 24, 140);
-        ctx.beginPath();
-        ctx.arc(x + 62, GROUND_Y - 150, 48, 0, Math.PI * 2);
-        ctx.fill();
-    }
-
-    // Floresta Principal (Árvores Próximas)
-    for (let x = 300; x < WORLD_WIDTH; x += 220) {
-        const renderX = x - cameraX;
-        if (renderX > -100 && renderX < WIDTH + 100) {
-            // Tronco
-            ctx.fillStyle = "#4a2c11";
-            ctx.fillRect(renderX, GROUND_Y - 180, 36, 180);
-            
-            // Copa da Árvore
-            ctx.fillStyle = "#145a32";
-            ctx.beginPath();
-            ctx.arc(renderX + 18, GROUND_Y - 200, 65, 0, Math.PI * 2);
-            ctx.fill();
-        }
-    }
-
-    // Cabana Inicial do Jogador (Esquerda do Mapa)
-    const houseX = 40 - cameraX;
-    if (houseX + 220 > 0 && houseX < WIDTH) {
-        // Parede de Madeira da Casa
-        ctx.fillStyle = "#5d4037";
-        ctx.fillRect(houseX, GROUND_Y - 130, 200, 130);
-
-        // Telhado
-        ctx.fillStyle = "#3e2723";
-        ctx.beginPath();
-        ctx.moveTo(houseX - 15, GROUND_Y - 130);
-        ctx.lineTo(houseX + 100, GROUND_Y - 190);
-        ctx.lineTo(houseX + 215, GROUND_Y - 130);
-        ctx.closePath();
-        ctx.fill();
-
-        // Cama ao Lado da qual o Player Acorda
-        ctx.fillStyle = "#7f8c8d";
-        ctx.fillRect(houseX + 30, GROUND_Y - 22, 60, 22); // Estrutura Cama
-        ctx.fillStyle = "#e74c3c";
-        ctx.fillRect(houseX + 45, GROUND_Y - 28, 45, 10); // Coberta
-        ctx.fillStyle = "#ffffff";
-        ctx.fillRect(houseX + 32, GROUND_Y - 28, 12, 10); // Travesseiro
-    }
-
-    // Chão de Grama e Terra
-    ctx.fillStyle = "#27ae60"; // Grama
-    ctx.fillRect(0, GROUND_Y, WIDTH, 16);
-    ctx.fillStyle = "#795548"; // Terra
-    ctx.fillRect(0, GROUND_Y + 16, WIDTH, HEIGHT - GROUND_Y - 16);
+    ctx.fillStyle = "#1a2a3a"; ctx.fillRect(0, 0, WIDTH, GROUND_Y);
+    ctx.fillStyle = "#27ae60"; ctx.fillRect(0, GROUND_Y, WIDTH, 16);
+    ctx.fillStyle = "#795548"; ctx.fillRect(0, GROUND_Y + 16, WIDTH, HEIGHT - GROUND_Y - 16);
 }
 
 function drawHUD() {
     const now = performance.now();
 
-    // Barra de Vida
-    ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
-    ctx.fillRect(16, 16, 208, 22);
-    ctx.fillStyle = "#e74c3c";
-    ctx.fillRect(20, 20, Math.max(0, (player.hp / player.maxHp) * 200), 14);
-
-    ctx.fillStyle = "#ffffff";
-    ctx.font = "bold 12px Arial";
-    ctx.textAlign = "left";
+    // Vida
+    ctx.fillStyle = "rgba(0,0,0,0.6)"; ctx.fillRect(16, 16, 208, 22);
+    ctx.fillStyle = "#e74c3c"; ctx.fillRect(20, 20, Math.max(0, (player.hp / player.maxHp) * 200), 14);
+    ctx.fillStyle = "#ffffff"; ctx.font = "bold 12px Arial"; ctx.textAlign = "left";
     ctx.fillText(`VIDA: ${Math.ceil(player.hp)} / ${player.maxHp}`, 26, 32);
 
-    // --- BARRA INFERIOR DE INVENTÁRIO ---
-    const slotW = 75;
-    const slotH = 50;
-    const totalW = slotW * 4 + 30;
-    const startX = (WIDTH - totalW) / 2;
-    const startY = HEIGHT - 70;
+    // Onda
+    ctx.fillStyle = "#ffffff"; ctx.font = "bold 22px Arial"; ctx.textAlign = "center";
+    ctx.fillText(`ONDA ${onda}`, WIDTH / 2, 35);
 
-    // Fundo do Inventário
+    // Barra do Boss
+    if (bossAtual) {
+        ctx.fillStyle = "#333"; ctx.fillRect(WIDTH / 2 - 200, 48, 400, 16);
+        ctx.fillStyle = bossAtual.cor; ctx.fillRect(WIDTH / 2 - 200, 48, (bossAtual.hp / bossAtual.maxHp) * 400, 16);
+        ctx.fillStyle = "#fff"; ctx.font = "12px Arial";
+        ctx.fillText(`[${bossAtual.nome}]`, WIDTH / 2, 61);
+    }
+
+    // 5 Slots do Inventário
+    const slotW = 70; const slotH = 50; const startX = (WIDTH - (slotW * 5 + 40)) / 2; const startY = HEIGHT - 65;
     ctx.fillStyle = "rgba(15, 18, 28, 0.9)";
-    ctx.beginPath();
-    ctx.roundRect(startX - 10, startY - 8, totalW + 20, slotH + 16, 8);
-    ctx.fill();
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.2)";
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
+    ctx.beginPath(); ctx.roundRect(startX - 10, startY - 8, (slotW * 5 + 60), slotH + 16, 8); ctx.fill();
 
-    for (let slot = 1; slot <= 4; slot++) {
+    for (let slot = 1; slot <= 5; slot++) {
         const x = startX + (slot - 1) * (slotW + 10);
-        const y = startY;
-
         const isSelected = (player.selectedSlot === slot);
+
         ctx.fillStyle = isSelected ? "rgba(52, 152, 219, 0.3)" : "rgba(255, 255, 255, 0.05)";
-        ctx.beginPath();
-        ctx.roundRect(x, y, slotW, slotH, 6);
-        ctx.fill();
+        ctx.fillRect(x, startY, slotW, slotH);
+        ctx.strokeStyle = isSelected ? "#f1c40f" : "rgba(255,255,255,0.2)";
+        ctx.strokeRect(x, startY, slotW, slotH);
 
-        ctx.strokeStyle = isSelected ? "#f1c40f" : "rgba(255, 255, 255, 0.2)";
-        ctx.lineWidth = isSelected ? 2.5 : 1;
-        ctx.stroke();
+        ctx.fillStyle = "#f1c40f"; ctx.font = "bold 10px Arial"; ctx.textAlign = "left";
+        ctx.fillText(`[${slot}]`, x + 4, startY + 12);
 
-        // Número do Slot
-        ctx.fillStyle = "#f1c40f";
-        ctx.font = "bold 11px Arial";
-        ctx.fillText(`[${slot}]`, x + 5, y + 14);
-
-        // Nome / Status do Item
-        ctx.fillStyle = "#ffffff";
-        ctx.font = "10px Arial";
-        
-        let label = "Vazio";
-        let subText = "";
-
+        let label = "Vazio"; let subText = "";
         if (slot === 1) {
             label = "Espada";
             const cd = Math.max(0, ((player.swordCooldown - (now - player.lastSwordTime)) / 1000)).toFixed(1);
@@ -977,117 +702,111 @@ function drawHUD() {
             label = "Escudo";
             subText = `${player.shieldCharges}/4 Def`;
             if (player.shieldCharges < 4) {
-                const regenCD = Math.max(0, ((player.shieldRegenDuration - (now - player.shieldRegenTimer)) / 1000)).toFixed(0);
-                subText += ` (${regenCD}s)`;
+                const cd = Math.max(0, ((player.shieldRegenDuration - (now - player.shieldRegenTimer)) / 1000)).toFixed(0);
+                subText += ` (${cd}s)`;
             }
         } else if (slot === 3) {
             label = "Arco";
             const cd = Math.max(0, ((player.bowCooldown - (now - player.lastBowTime)) / 1000)).toFixed(1);
             if (cd > 0) subText = `${cd}s`;
-        } else if (slot === 4) {
-            if (player.rottenMeatCount > 0) {
-                label = "Carne Podre";
-                subText = `qtd: ${player.rottenMeatCount}`;
-            }
+        } else if (slot === 4 && player.rottenMeatCount > 0) {
+            label = "Carne"; subText = `x${player.rottenMeatCount}`;
+        } else if (slot === 5 && player.boneArrows > 0) {
+            label = "Ossos"; subText = `x${player.boneArrows}`;
         }
 
-        ctx.fillText(label, x + 5, y + 28);
-        if (subText) {
-            ctx.fillStyle = "#e67e22";
-            ctx.fillText(subText, x + 5, y + 42);
-        }
+        ctx.fillStyle = "#fff"; ctx.fillText(label, x + 4, startY + 26);
+        if (subText) { ctx.fillStyle = "#e67e22"; ctx.fillText(subText, x + 4, startY + 40); }
     }
 }
 
-// --- GAMELOOP PRINCIPAL ---
+// Loop Principal
 function gameLoop() {
     ctx.clearRect(0, 0, WIDTH, HEIGHT);
 
     if (currentState === STATE_MENU) {
         drawMenu();
     } else if (currentState === STATE_GAME) {
-        // Atualizações
         player.update();
         updateCamera();
 
-        // Coleta automática se aproximar dos drops
-        for (let i = drops.length - 1; i >= 0; i--) {
-            let d = drops[i];
-            let dist = Math.hypot((player.x + player.width/2) - (d.x + d.width/2), (player.y + player.height/2) - (d.y + d.height/2));
-            if (dist < 32) {
-                player.rottenMeatCount += d.count;
-                player.inventory[4] = `Carne Podre (${player.rottenMeatCount})`;
-                createFloatingText(d.x, d.y, `+${d.count} Carne Podre`, "#27ae60");
-                drops.splice(i, 1);
-            }
-        }
-
         // Atualizar Projéteis
-        for (let i = projectiles.length - 1; i >= 0; i--) {
-            let p = projectiles[i];
+        for (let i = projeteis.length - 1; i >= 0; i--) {
+            let p = projeteis[i];
             p.update();
-            if (!p.active) {
-                projectiles.splice(i, 1);
-                continue;
-            }
+            if (!p.active) { projeteis.splice(i, 1); continue; }
 
-            // Colisão Flecha -> Zumbi
-            for (let z of zombies) {
-                if (p.x >= z.x && p.x <= z.x + z.width && p.y >= z.y && p.y <= z.y + z.height) {
-                    z.hp -= p.damage;
-                    z.vx = (p.vx > 0) ? 3 : -3; // Impulso
-                    createFloatingText(z.x + z.width/2, z.y - 10, `-${p.damage} HP`, "#f1c40f");
+            if (p.deInimigo) {
+                if (p.x >= player.x && p.x <= player.x + player.width && p.y >= player.y && p.y <= player.y + player.height) {
+                    player.hp -= p.damage;
+                    createFloatingText(player.x + player.width / 2, player.y - 15, `-${p.damage} HP`, "#e74c3c");
                     p.active = false;
-                    break;
+                }
+            } else {
+                for (let m of mobs) {
+                    if (p.x >= m.x && p.x <= m.x + m.width && p.y >= m.y && p.y <= m.y + m.height) {
+                        m.hp -= p.damage;
+                        m.vx = (p.vx > 0) ? 3 : -3;
+                        createFloatingText(m.x + m.width / 2, m.y - 10, `-${p.damage} HP`, "#f1c40f");
+                        p.active = false; break;
+                    }
+                }
+                if (bossAtual && p.active) {
+                    if (p.x >= bossAtual.x && p.x <= bossAtual.x + bossAtual.width && p.y >= bossAtual.y && p.y <= bossAtual.y + bossAtual.height) {
+                        bossAtual.hp -= p.damage;
+                        createFloatingText(bossAtual.x + bossAtual.width / 2, bossAtual.y - 10, `-${p.damage} HP`, "#f1c40f");
+                        p.active = false;
+                    }
                 }
             }
         }
 
-        // Atualizar Zumbis
-        for (let i = zombies.length - 1; i >= 0; i--) {
-            let z = zombies[i];
-            z.update();
-
-            // Morte do Zumbi -> Dropa de 1 a 3 Carnes Podres
-            if (z.hp <= 0) {
-                const count = Math.floor(Math.random() * 3) + 1;
-                drops.push(new DropItem(z.x + z.width/2, GROUND_Y - 20, count));
-                zombies.splice(i, 1);
+        // Atualizar Mobs
+        for (let i = mobs.length - 1; i >= 0; i--) {
+            let m = mobs[i];
+            m.update();
+            if (m.hp <= 0) {
+                if (m.tipo === 'esqueleto') drops.push(new DropItem(m.x, GROUND_Y - 20, 'osso', 1));
+                else drops.push(new DropItem(m.x, GROUND_Y - 20, 'carne', Math.floor(Math.random() * 2) + 1));
+                mobs.splice(i, 1);
             }
         }
 
-        // Respawn de Zumbis para manter a jogabilidade viva na floresta
-        if (zombies.length < 3 && Math.random() < 0.008) {
-            const spawnX = Math.random() < 0.5 ? player.x - 500 : player.x + 500;
-            if (spawnX > 300 && spawnX < WORLD_WIDTH) {
-                zombies.push(new Zombie(spawnX, GROUND_Y - 58));
+        // Atualizar Boss
+        if (bossAtual) {
+            bossAtual.update();
+            if (bossAtual.hp <= 0) {
+                createFloatingText(bossAtual.x, bossAtual.y, "BOSS DERROTADO!", "#f1c40f");
+                bossAtual = null;
             }
+        }
+
+        // Fim de Onda
+        if (mobs.length === 0 && !bossAtual) {
+            onda++;
+            iniciarOnda(onda);
+            createFloatingText(player.x + player.width / 2, player.y - 30, `ONDA ${onda}!`, "#f1c40f");
         }
 
         updateFloatingTexts();
 
-        // Renderização do Jogo
+        // Renderização
         drawWorldBackground();
-
         drops.forEach(d => d.draw());
-        projectiles.forEach(p => p.draw());
-        zombies.forEach(z => z.draw());
+        projeteis.forEach(p => p.draw());
+        mobs.forEach(m => m.draw());
+        if (bossAtual) bossAtual.draw();
         player.draw();
-
         drawFloatingTexts();
         drawHUD();
 
-        // Game Over
         if (player.hp <= 0) {
             ctx.fillStyle = "rgba(0, 0, 0, 0.75)";
             ctx.fillRect(0, 0, WIDTH, HEIGHT);
-            ctx.fillStyle = "#e74c3c";
-            ctx.font = "bold 42px Arial";
-            ctx.textAlign = "center";
-            ctx.fillText("VOCÊ MORREU", WIDTH / 2, HEIGHT / 2 - 20);
-            ctx.fillStyle = "#ffffff";
-            ctx.font = "18px Arial";
-            ctx.fillText("Clique para Voltar ao Menu", WIDTH / 2, HEIGHT / 2 + 30);
+            ctx.fillStyle = "#e74c3c"; ctx.font = "bold 42px Arial"; ctx.textAlign = "center";
+            ctx.fillText("VOCÊ MORREU", WIDTH / 2, HEIGHT / 2);
+            ctx.fillStyle = "#ffffff"; ctx.font = "18px Arial";
+            ctx.fillText("Clique para reiniciar", WIDTH / 2, HEIGHT / 2 + 40);
 
             const handleRestart = () => {
                 currentState = STATE_MENU;
@@ -1100,276 +819,8 @@ function gameLoop() {
     requestAnimationFrame(gameLoop);
 }
 
-// Iniciar Loop
 requestAnimationFrame(gameLoop);
 </script>
 
-</body>
-</html>
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-    <meta charset="UTF-8">
-    <title>Survival Wave Game</title>
-    <style>
-        body { margin: 0; background: #111; color: #fff; font-family: sans-serif; overflow: hidden; }
-        canvas { display: block; margin: 0 auto; background: #222; }
-    </style>
-</head>
-<body>
-<canvas id="gameCanvas" width="800" height="600"></canvas>
-
-<script>
-const canvas = document.getElementById("gameCanvas");
-const ctx = canvas.getContext("2d");
-
-// --- ESTADO DO JOGO ---
-let onda = 1;
-let mobsRestantes = 0;
-let chaoItens = [];
-let teclas = {};
-
-window.addEventListener("keydown", e => { teclas[e.key.toLowerCase()] = true; });
-window.addEventListener("keyup", e => { teclas[e.key.toLowerCase()] = false; });
-
-// --- JOGADOR ---
-const player = {
-    x: 400, y: 300, r: 15, hp: 100, maxHp: 100,
-    slots: [null, null, null, null, null], // 5 Slots
-    flechasOssos: 0,
-    cooldowns: { espada: 0, arco: 0, escudoRegen: 0 },
-    escudoAtivo: false,
-    veneno: { ativo: false, tempo: 0, timerDano: 0 }
-};
-
-// --- Mobs & Bosses ---
-let mobs = [];
-let projeteis = [];
-let bossAtual = null;
-
-class Enemy {
-    constructor(x, y, tipo) {
-        this.x = x; this.y = y; this.tipo = tipo;
-        if(tipo === 'zumbi') { this.hp = 30; this.r = 15; this.cor = '#2e7d32'; }
-        if(tipo === 'esqueleto') { this.hp = 25; this.r = 12; this.cor = '#e0e0e0'; this.cooldownTiro = 0; }
-        if(tipo === 'aranha') { this.hp = 40; this.r = 10; this.cor = '#8e24aa'; }
-    }
-    update() {
-        let dx = player.x - this.x;
-        let dy = player.y - this.y;
-        let dist = Math.hypot(dx, dy);
-        
-        // Movimento básico
-        if (dist > 20) {
-            this.x += (dx / dist) * 1.5;
-            this.y += (dy / dist) * 1.5;
-        }
-
-        // Ataque Esqueleto (Arco: 3.5s)
-        if (this.tipo === 'esqueleto') {
-            this.cooldownTiro += 1/60;
-            if (this.cooldownTiro >= 3.5) {
-                projeteis.push({ x: this.x, y: this.y, vx: (dx/dist)*4, vy: (dy/dist)*4, dano: 10, deInimigo: true, tipo: 'flecha' });
-                this.cooldownTiro = 0;
-            }
-        }
-
-        // Ataque Aranha (Dano + Veneno)
-        if (this.tipo === 'aranha' && dist < 25) {
-            if (!player.veneno.ativo) {
-                player.hp -= 10;
-                player.veneno = { ativo: true, tempo: 5, timerDano: 0 };
-            }
-        }
-    }
-    draw() {
-        ctx.fillStyle = this.cor;
-        ctx.beginPath(); ctx.arc(this.x, this.y, this.r, 0, Math.PI*2); ctx.fill();
-        if(this.tipo === 'esqueleto') ctx.strokeText("🏹", this.x - 5, this.y + 4);
-    }
-}
-
-class Boss {
-    constructor(nome, hp, cor) {
-        this.nome = nome; this.hp = hp; this.maxHp = hp;
-        this.x = 400; this.y = 100; this.r = 30; this.cor = cor;
-        this.timerAtaque = 0;
-        this.voador = (nome === 'Fenix');
-        this.caido = false;
-        this.timerQueda = 0;
-    }
-    update() {
-        this.timerAtaque += 1/60;
-        
-        // Lógica Fenix
-        if (this.nome === 'Fenix' && !this.caido) {
-            if (this.timerAtaque >= 3) {
-                projeteis.push({ x: this.x, y: this.y, vx: 0, vy: 5, dano: 20, deInimigo: true, tipo: 'fogo' });
-                this.timerAtaque = 0;
-            }
-        }
-        
-        // Lógica Yeti (Troca de ataques a cada 3s)
-        if (this.nome === 'Yeti' && this.timerAtaque >= 3) {
-            let rand = Math.random();
-            if (rand < 0.5) {
-                // Parede de Gelo (Desvia Pulo)
-                projeteis.push({ x: 0, y: player.y, vx: 5, vy: 0, largura: 20, altura: 100, dano: 30, tipo: 'paredeGelo', deInimigo: true });
-            } else {
-                // Projéteis de Gelo
-                projeteis.push({ x: this.x, y: this.y, vx: (player.x - this.x)*0.02, vy: (player.y - this.y)*0.02, dano: 30, tipo: 'gelo', deInimigo: true });
-            }
-            this.timerAtaque = 0;
-        }
-
-        if (this.caido) {
-            this.timerQueda -= 1/60;
-            if (this.timerQueda <= 0) this.caido = false;
-        }
-    }
-    draw() {
-        ctx.fillStyle = this.caido ? '#555' : this.cor;
-        ctx.beginPath(); ctx.arc(this.x, this.y, this.r, 0, Math.PI*2); ctx.fill();
-    }
-}
-
-// --- CONTROLE DE ONDAS ---
-function iniciarOnda(num) {
-    mobs = [];
-    bossAtual = null;
-    
-    if (num === 5) {
-        bossAtual = new Boss('Yeti', 200, '#00d2ff');
-        mobs.push(new Enemy(100, 100, 'zumbi'), new Enemy(700, 100, 'esqueleto'));
-    } else if (num === 10) {
-        bossAtual = new Boss('Fenix', 300, '#ff3d00');
-        mobs.push(new Enemy(100, 100, 'aranha'), new Enemy(700, 100, 'aranha'));
-    } else if (num === 15) {
-        // Boss Final: Fada da Natureza + Guardião
-        bossAtual = new Boss('Fada da Natureza', 600, '#00e676');
-        mobs.push(new Enemy(300, 200, 'zumbi')); // Guardião customizável
-    } else {
-        let qtd = 6 + (num * 2);
-        for(let i=0; i<qtd; i++) {
-            let tipo = i % 3 === 0 ? 'esqueleto' : (i % 3 === 1 ? 'aranha' : 'zumbi');
-            mobs.push(new Enemy(Math.random()*700 + 50, Math.random()*200, tipo));
-        }
-    }
-}
-
-// --- LOOP PRINCIPAL ---
-function update() {
-    // Timers Cooldowns
-    if (player.cooldowns.espada > 0) player.cooldowns.espada -= 1/60;
-    if (player.cooldowns.arco > 0) player.cooldowns.arco -= 1/60;
-    if (player.cooldowns.escudoRegen > 0) player.cooldowns.escudoRegen -= 1/60;
-
-    // Processar Veneno
-    if (player.veneno.ativo) {
-        player.veneno.tempo -= 1/60;
-        player.veneno.timerDano += 1/60;
-        if (player.veneno.timerDano >= 1.0) {
-            player.hp -= 4;
-            player.veneno.timerDano = 0;
-        }
-        if (player.veneno.tempo <= 0) player.veneno.ativo = false;
-    }
-
-    // Coletar Itens do Chão (Tecla F)
-    if (teclas['f']) {
-        chaoItens = chaoItens.filter(item => {
-            let dist = Math.hypot(player.x - item.x, player.y - item.y);
-            if (dist < 40) {
-                if (item.tipo === 'osso') player.flechasOssos += 1;
-                return false;
-            }
-            return true;
-        });
-    }
-
-    // Atualizar Mobs & Boss
-    mobs.forEach((m, idx) => {
-        m.update();
-        if (m.hp <= 0) {
-            if (m.tipo === 'esqueleto') chaoItens.push({ x: m.x, y: m.y, tipo: 'osso' });
-            mobs.splice(idx, 1);
-        }
-    });
-
-    if (bossAtual) {
-        bossAtual.update();
-        if (bossAtual.hp <= 0) {
-            if (bossAtual.nome === 'Yeti') chaoItens.push({ x: bossAtual.x, y: bossAtual.y, tipo: 'espadaGelo' });
-            if (bossAtual.nome === 'Fenix') chaoItens.push({ x: bossAtual.x, y: bossAtual.y, tipo: 'arcoFogo' });
-            bossAtual = null;
-        }
-    }
-
-    // Checar Fim de Onda
-    if (mobs.length === 0 && !bossAtual) {
-        onda++;
-        iniciarOnda(onda);
-    }
-}
-
-function drawHUD() {
-    // Placar da Onda (Topo Centralizado)
-    ctx.fillStyle = "#fff";
-    ctx.font = "bold 22px sans-serif";
-    ctx.textAlign = "center";
-    ctx.fillText(`Onda ${onda}`, canvas.width / 2, 30);
-
-    // Barra do Boss (Se ativo)
-    if (bossAtual) {
-        ctx.fillStyle = "#333";
-        ctx.fillRect(200, 45, 400, 20);
-        ctx.fillStyle = bossAtual.cor;
-        ctx.fillRect(200, 45, (bossAtual.hp / bossAtual.maxHp) * 400, 20);
-        ctx.fillStyle = "#fff";
-        ctx.font = "14px sans-serif";
-        ctx.fillText(`[${bossAtual.nome}]`, canvas.width / 2, 60);
-    }
-
-    // 5 Slots de Inventário (Rodapé)
-    for (let i = 0; i < 5; i++) {
-        ctx.strokeStyle = "#fff";
-        ctx.strokeRect(270 + (i * 50), 530, 40, 40);
-        ctx.fillStyle = "#aaa";
-        ctx.font = "10px sans-serif";
-        ctx.fillText(`Slot ${i+1}`, 290 + (i * 50), 565);
-    }
-
-    // Itens no Chão
-    chaoItens.forEach(item => {
-        ctx.fillStyle = item.tipo === 'osso' ? '#fff' : '#ffd700';
-        ctx.beginPath(); ctx.arc(item.x, item.y, 6, 0, Math.PI*2); ctx.fill();
-        ctx.fillStyle = '#fff';
-        ctx.font = '10px sans-serif';
-        ctx.fillText("[F] Pegar " + item.tipo, item.x, item.y - 10);
-    });
-}
-
-function render() {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    
-    // Desenhar Player
-    ctx.fillStyle = player.veneno.ativo ? '#76ff03' : '#29b6f6';
-    ctx.beginPath(); ctx.arc(player.x, player.y, player.r, 0, Math.PI*2); ctx.fill();
-
-    mobs.forEach(m => m.draw());
-    if (bossAtual) bossAtual.draw();
-    
-    drawHUD();
-}
-
-function gameLoop() {
-    update();
-    render();
-    requestAnimationFrame(gameLoop);
-}
-
-iniciarOnda(1);
-gameLoop();
-</script>
 </body>
 </html>
